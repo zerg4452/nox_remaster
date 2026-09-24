@@ -2,6 +2,7 @@ package noxrender
 
 import (
 	"image"
+	"unsafe"
 
 	"github.com/noxworld-dev/opennox-lib/noximage"
 )
@@ -16,6 +17,10 @@ type hdTarget struct {
 	menuSprites       map[string]*noximage.Image16
 	suppressImageSpan bool
 	worldSpanSource   []byte
+	// sprite is the installed density-2 asset of the image being drawn in a
+	// world frame (4.2-M6), spriteStride its row length in samples.
+	sprite       []uint16
+	spriteStride int
 }
 
 // BeginHDFrame starts an optional operation target without replacing the logical
@@ -109,6 +114,35 @@ func (r *NoxRender) hdFillWorldRect(rc image.Rectangle, value uint16) {
 	}
 	for y := y1 + 1; y < y2; y++ {
 		copy(r.hd.pix.Row(y)[x1:x2], first)
+	}
+}
+
+// hdSpan draws one clipped 16-bit run whose first pixel is at image-local
+// position local. With an installed world asset both density-2 rows come from
+// it (same pure operation, asset samples instead of repeated originals);
+// otherwise, or if the run does not fit the asset, it is the 2x path.
+func (r *NoxRender) hdSpan(pos, local image.Point, src []byte, n int, fn drawOp16Func) {
+	s, stride := r.hd.sprite, r.hd.spriteStride
+	if s == nil || !r.hd.world || local.X < 0 || local.Y < 0 || n <= 0 || 2*(local.X+n) > stride || (2*local.Y+2)*stride > len(s) {
+		r.hdImageSpan(pos, src, n, fn)
+		return
+	}
+	if !r.hd.active {
+		return
+	}
+	if fn == nil || !pos.In(r.pix.Rect) || n > r.pix.Rect.Max.X-pos.X {
+		r.InvalidateHDFrame()
+		return
+	}
+	if r.hd.suppressImageSpan {
+		return
+	}
+	for y := 0; y < 2; y++ {
+		i := (2*local.Y+y)*stride + 2*local.X
+		row := s[i : i+2*n]
+		// Samples are little-endian uint16, the byte layout the ops decode.
+		b := unsafe.Slice((*byte)(unsafe.Pointer(&row[0])), 4*n)
+		_, _ = fn(r.hd.pix.Row(pos.Y*2 + y)[pos.X*2:], b, 2*n)
 	}
 }
 

@@ -164,6 +164,11 @@ func TestWorldHDAssetLoaderStress(t *testing.T) {
 		if l.cache.bytes > l.cache.budget || l.inflight > l.maxInflight || len(l.pending) > l.maxPending {
 			t.Fatal("limit exceeded")
 		}
+		// Let workers catch up periodically so installs and evictions happen
+		// regardless of scheduling; requests still race with running workers.
+		if frame%10 == 9 {
+			waitIdle(t, l)
+		}
 	}
 	if l.cache.stats.Installs == 0 || l.cache.stats.Evictions == 0 {
 		t.Fatalf("stress did not exercise the cache: %+v", l.cache.stats)

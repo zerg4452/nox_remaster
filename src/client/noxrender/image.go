@@ -215,6 +215,15 @@ func (r *NoxRender) nox_client_drawImg_aaa_4C79F0(ops *drawOps, img Image16, pos
 
 	src = src[1:] // unused
 
+	// A world HD asset is verified against the bag record, so it only applies
+	// when that record (not override data) is what is being drawn.
+	if r.hd.active && r.hd.world {
+		if p, ok := img.(*Image); ok && p.override == nil {
+			r.hd.sprite, r.hd.spriteStride = r.Bag.WorldHDAsset(p), 2*int(width)
+			defer func() { r.hd.sprite = nil }()
+		}
+	}
+
 	if r.dword_5d4594_3799484 != 0 {
 		height -= r.dword_5d4594_3799484
 		if height <= 0 {
@@ -270,7 +279,7 @@ func (r *NoxRender) nox_client_drawImg_aaa_4C79F0(ops *drawOps, img Image16, pos
 			switch op & 0xF {
 			case 2, 7:
 				if r.hd.active {
-					r.hdImageSpan(image.Pt(pos.X+j, pos.Y+i), src, val, ops.draw27)
+					r.hdSpan(image.Pt(pos.X+j, pos.Y+i), image.Pt(j, i), src, val, ops.draw27)
 				}
 				dst, src = ops.draw27(dst, src, val)
 			case 4:
@@ -278,7 +287,7 @@ func (r *NoxRender) nox_client_drawImg_aaa_4C79F0(ops *drawOps, img Image16, pos
 				dst, src = ops.draw4(dst, src, op>>4, val)
 			case 5:
 				if r.hd.active {
-					r.hdImageSpan(image.Pt(pos.X+j, pos.Y+i), src, val, ops.draw5)
+					r.hdSpan(image.Pt(pos.X+j, pos.Y+i), image.Pt(j, i), src, val, ops.draw5)
 				}
 				dst, src = ops.draw5(dst, src, val)
 			case 6:
@@ -398,7 +407,7 @@ func (r *NoxRender) nox_client_drawXxx_4C7C80(ops *drawOps, pix []byte, pos imag
 				pix = pix[n:]
 			} else {
 				if r.hd.active {
-					r.hdImageSpan(image.Pt(xs, yi), pix2, xw, fnc16)
+					r.hdSpan(image.Pt(xs, yi), image.Pt(xs-pos.X, yi-pos.Y), pix2, xw, fnc16)
 				}
 				_, _ = fnc16(row2, pix2, xw)
 				pix = pix[2*n:]
