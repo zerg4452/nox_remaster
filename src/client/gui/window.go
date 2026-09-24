@@ -389,6 +389,12 @@ func (win *Window) Func94(e WindowEvent) WindowEventResp {
 	if win.isNilOrDead() {
 		return nil
 	}
+	return win.callFunc94(e)
+}
+
+// The reclamation path dispatches WindowDestroy after marking the window dead.
+// All ordinary callers must continue using the guarded Func94 entry point.
+func (win *Window) callFunc94(e WindowEvent) WindowEventResp {
 	if ext := win.ext(); ext != nil && ext.Func94 != nil {
 		return ext.Func94(win, e)
 	}

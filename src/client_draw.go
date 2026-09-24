@@ -13,6 +13,7 @@ import (
 
 	"github.com/noxworld-dev/opennox/v1/client"
 	"github.com/noxworld-dev/opennox/v1/client/noxrender"
+	"github.com/noxworld-dev/opennox/v1/client/noxrender/worldhd"
 	noxflags "github.com/noxworld-dev/opennox/v1/common/flags"
 	"github.com/noxworld-dev/opennox/v1/common/memmap"
 	"github.com/noxworld-dev/opennox/v1/legacy"
@@ -158,6 +159,8 @@ func (c *Client) nox_xxx_clientDrawAll_436100_draw() {
 		return
 	}
 	noxflags.UnsetEngine(noxflags.EnginePause)
+	// World drawing happens in DrawFunc, before drawAndPresent's GUI pass.
+	c.beginWorldHD()
 	*memmap.PtrUint64(0x5D4594, 814532) = v0
 	*memmap.PtrUint32(0x5D4594, 811916) = c.srv.Frame()
 	vp := c.Viewport()
@@ -1145,6 +1148,7 @@ func (c *Client) Sub4C42A0(a1, a2 image.Point, a3 *int, a4 *int) int32 {
 }
 
 func (c *Client) nox_xxx_tileDrawMB_481C20_C_solid(vp *noxrender.Viewport, dp image.Point) {
+	c.r.InvalidateHDFrame()
 	c.sub4745F0(vp)
 	y := c.tiles.dword_5d4594_3679320
 	if y >= c.tiles.dword_5d4594_3798156 {
@@ -1200,7 +1204,16 @@ func (c *Client) nox_xxx_tileDrawMB_481C20_C_textured(vp *noxrender.Viewport, dp
 	var v66 image.Point
 	v66.Y = (v67.Y - gpy) / common.GridStep
 	v78 := v67.Y - common.GridStep*v66.Y - gpy
-	pix := r.PixBuffer()
+	var pix = r.WorldFloorBuffer()
+	if c.tiles.hd == nil {
+		pix = r.PixBuffer()
+	}
+	if !c.tiles.hd.Ready() {
+		r.RejectWorldHD("tile buffer unavailable or unsupported")
+	}
+	if legacy.Get_nox_client_highResFloors_154952() == 0 {
+		r.RejectWorldHD("interlaced floors")
+	}
 	for yy := sy; yy < ymax; yy++ {
 		src := c.tiles.nox_arr_957820[yy:]
 		if v78 == common.GridStep {
@@ -1267,6 +1280,13 @@ func (c *Client) noxTileDrawTextured(a1 image.Point, a2 int, a3, sz int, dst []u
 			copy(dst[:sz1], buf[bi:bi+sz1])
 			copy(dst[sz1:sz1+sz2], buf[:sz2])
 		}
+		if c.tiles.hd != nil {
+			span := c.r.BeginWorldFloorSpan(dst[:sz])
+			for i := 0; i < sz; i++ {
+				v, detail := c.tiles.hd.Pixel(bi+i, dst[i])
+				span.Set(i, v, detail)
+			}
+		}
 		return a2
 	}
 	mul := a1.X - common.GridStep*a2 - c.tiles.noxTilesGpx
@@ -1291,8 +1311,25 @@ func (c *Client) noxTileDrawTextured(a1 image.Point, a2 int, a3, sz int, dst []u
 		bi = bi % len(buf)
 		_ = dst[csz:]
 		_ = buf[bi:]
+		var span noxrender.WorldFloorSpan
+		var top, bottom []uint16
+		hd := false
+		if c.tiles.hd != nil {
+			span = c.r.BeginWorldFloorSpan(dst[:csz])
+			top, bottom, hd = span.Rows()
+		}
+		detail := 0
 		for i := 0; i < csz; i++ {
 			cl := buf[bi%len(buf)]
+			if hd {
+				v, d := c.tiles.hd.Pixel(bi, cl)
+				j := i * 2
+				top[j], top[j+1] = worldhd.Light(v[0], c1.R, c1.G, c1.B), worldhd.Light(v[1], c1.R, c1.G, c1.B)
+				bottom[j], bottom[j+1] = worldhd.Light(v[2], c1.R, c1.G, c1.B), worldhd.Light(v[3], c1.R, c1.G, c1.B)
+				if d {
+					detail++
+				}
+			}
 			r := uint16((uint32(c1.R)*uint32((cl>>7)&0xF8))>>16) & 0xF8
 			g := uint16((uint32(c1.G)*uint32((cl>>2)&0xF8))>>16) & 0xF8
 			b := uint16((uint32(c1.B)*uint32((cl>>0)&0x1F))>>13) & 0xF8
@@ -1302,6 +1339,9 @@ func (c *Client) noxTileDrawTextured(a1 image.Point, a2 int, a3, sz int, dst []u
 			c1.R += lr
 			c1.G += lg
 			c1.B += lb
+		}
+		if detail != 0 {
+			span.AddDetail(detail)
 		}
 		dst = dst[csz:]
 		sz -= csz

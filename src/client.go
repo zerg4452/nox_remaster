@@ -14,7 +14,8 @@ import (
 )
 
 var (
-	noxClient *Client
+	noxClient              *Client
+	closeMenuOutputCapture func()
 )
 
 func init() {
@@ -85,6 +86,9 @@ func (c *Client) GetCtrlEvent() legacy.CtrlEventHandler {
 }
 
 func (c *Client) Close() error {
+	if closeMenuOutputCapture != nil {
+		closeMenuOutputCapture()
+	}
 	c.freeSeat()
 	return nil
 }

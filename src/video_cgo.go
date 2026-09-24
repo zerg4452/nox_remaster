@@ -126,7 +126,7 @@ func nox_getBackbufHeight() int {
 }
 
 func nox_video_getFullScreen() int {
-	return noxClient.GetWindowMode()
+	return legacyFullscreenMode(noxClient.GetWindowMode())
 }
 
 func nox_video_setFullScreen(v int) {

@@ -29,12 +29,19 @@ var (
 )
 
 func (c *Client) drawAndPresent() {
+	// Animation completion can draw the final menu background and destroy its
+	// windows (sub_4A50D0). Include that draw in this frame's HD target before
+	// the regular GUI pass, which then has no menu windows left to redraw.
+	if nox_client_gui_flag_815132 != 0 || !noxflags.HasEngine(noxflags.EnginePause) {
+		c.beginMenuHD()
+	}
 	if nox_client_gui_flag_815132 != 0 {
 		gui.AnimTick()
 		noxflags.UnsetEngine(noxflags.EnginePause)
 		c.generateMouseSparks()
 	}
 	if !noxflags.HasEngine(noxflags.EnginePause) {
+		mainloopPaceBeforePresent()
 		c.mainloopDrawAndPresent()
 	}
 }
@@ -146,6 +153,15 @@ func (c *Client) mapDownloadLoop(first bool) (bool, error) {
 }
 
 func (c *Client) mainloopDrawAndPresent() {
+	if finish := c.beginWorldPerf(); finish != nil {
+		defer finish()
+	}
+	if finish := c.beginMenuPerf(); finish != nil {
+		defer finish()
+	}
+	if c.beginMenuDrawTrace() {
+		defer c.endMenuDrawTrace()
+	}
 	sub_437180()
 	if legacy.Get_nox_client_gui_flag_1556112() == 0 {
 		c.GUI.Draw() // Draw game windows
@@ -155,6 +171,8 @@ func (c *Client) mainloopDrawAndPresent() {
 		c.nox_client_drawCursorAndTooltips_477830() // Draw cursor
 	}
 	c.r.DrawFade(true)
+	c.endWorldHD()
+	c.endMenuHD()
 	c.maybeScreenshot()
 	if !noxflags.HasEngine(noxflags.EngineNoRendering) || noxflags.HasEngine(noxflags.EngineFlag9) || nox_client_gui_flag_815132 != 0 {
 		c.copyPixBuffer()

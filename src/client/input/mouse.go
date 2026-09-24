@@ -535,6 +535,10 @@ func (h *mouseHandler) nox_client_readMouseBuffer_4306A0(cseq uint, a1 bool) boo
 			break
 		}
 		n++
+		// Let the GUI observe each button transition before consuming the next.
+		if e.btn[NOX_MOUSE_LEFT].seq != 0 || e.btn[NOX_MOUSE_RIGHT].seq != 0 || e.btn[NOX_MOUSE_MIDDLE].seq != 0 {
+			break
+		}
 	}
 	h.nox_client_processMouseEvents_4302A0(cseq, n, a1)
 	h.reading = false

@@ -103,6 +103,7 @@ func guiParseHook(name string, win *gui.Window) {
 	switch name {
 	case "options.wnd":
 		guiEnhanceOptions(win)
+		guiAddMenuUIProbe(win)
 	case "inputcfg.wnd":
 		guiEnhanceInputCfg(win)
 	}

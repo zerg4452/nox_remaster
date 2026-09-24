@@ -25,7 +25,11 @@
 
 
 //----- (004A22A0) --------------------------------------------------------
+extern unsigned int nox_menu_trace_enabled;
+extern unsigned int nox_menu_trace_background_calls;
+extern void nox_menu_hd_background(void* win, int x, int y);
 int sub_4A22A0(int a1, int* a2) {
+	if (nox_menu_trace_enabled) { nox_menu_trace_background_calls++; }
 	int v2;             // edx
 	int v3;             // ecx
 	unsigned char* v4;  // esi
@@ -57,6 +61,7 @@ int sub_4A22A0(int a1, int* a2) {
 		} else {
 			nox_client_drawImageAt_47D2C0(a2[6], xLeft, v3);
 		}
+		if ((v2 & 2) ? a2[10] : a2[6]) { nox_menu_hd_background((void*)a1, xLeft, yTop); }
 	}
 	if (*getMemU32Ptr(0x587000, 168836)) {
 		v4 = getMemAt(0x587000, 168868);

@@ -11,6 +11,7 @@ import (
 
 	"github.com/noxworld-dev/opennox/v1/client"
 	"github.com/noxworld-dev/opennox/v1/client/noxrender"
+	"github.com/noxworld-dev/opennox/v1/client/noxrender/worldhd"
 	noxflags "github.com/noxworld-dev/opennox/v1/common/flags"
 	"github.com/noxworld-dev/opennox/v1/common/memmap"
 	"github.com/noxworld-dev/opennox/v1/legacy"
@@ -48,6 +49,7 @@ type nox_arr_84EB20_t struct {
 }
 
 type clientTileData struct {
+	hd             *worldhd.Tiles
 	noxTilesGpx    int
 	noxTilesGpy    int
 	noxTileBuf     []uint16
@@ -299,6 +301,9 @@ func sub_480860(dst, src []uint16, w int, a4p, a5p []uint32) {
 		a4p[1] += a5p[1]
 		a4p[2] += a5p[2]
 	}
+	if noxClient != nil {
+		noxClient.r.MirrorWorldOpaque(dst[:w])
+	}
 }
 
 type NoxRender struct {
@@ -481,6 +486,11 @@ func (c *Client) nox_xxx_tileInitBuf_430DB0(width, height int) {
 
 	sz := c.tiles.dword_5d4594_3798804 * (2 * common.GridStep) * c.tiles.dword_5d4594_3798816
 	c.tiles.noxTileBuf, c.tiles.noxTileBufFree = alloc.Make([]uint16{}, sz/2)
+	c.tiles.hd = nil
+	if c.r.Bag.WorldFloorCount() != 0 {
+		c.tiles.hd = worldhd.NewTiles(c.tiles.dword_5d4594_3798804/2, c.tiles.dword_5d4594_3798808)
+	}
+	legacy.SetWorldHDTiles(c.tiles.hd != nil)
 	legacy.Set_nox_video_tileBuf_ptr_3798796(unsafe.Pointer(&c.tiles.noxTileBuf[0]))
 	legacy.Set_nox_video_tileBuf_end_3798844(unsafe.Add(unsafe.Pointer(&c.tiles.noxTileBuf[0]), sz))
 
@@ -493,6 +503,8 @@ func (c *Client) nox_xxx_tileInitBuf_430DB0(width, height int) {
 }
 
 func (c *Client) nox_video_freeFloorBuffer_430EC0() {
+	c.tiles.hd = nil
+	legacy.SetWorldHDTiles(false)
 	if c.tiles.noxTileBuf != nil {
 		c.tiles.noxTileBufFree()
 		c.tiles.noxTileBuf = nil

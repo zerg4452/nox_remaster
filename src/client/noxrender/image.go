@@ -40,11 +40,43 @@ func NewRawImage16(typ int, data []byte) Image16 {
 }
 
 func (r *NoxRender) DrawImage16(img Image16, pos image.Point) {
+	r.lastFullImage = false
 	if img == nil {
 		return
 	}
 	if p, ok := img.(*Image); ok && p == nil {
 		return
+	}
+	menuSprite, menuClip := r.hdMenuSprite(img, pos)
+	previousSuppression := r.hd.suppressImageSpan
+	r.hd.suppressImageSpan = menuSprite != nil
+	defer func() { r.hd.suppressImageSpan = previousSuppression }()
+	// Capture effective state before DrawImageAt restores clipping and trim.
+	if r.pix != nil && r.p != nil && img.Type()&0x3f == 3 && pos == (image.Point{}) &&
+		!r.p.IsAlphaEnabled() && !r.p.Multiply14() && !r.p.Colorize17() && !r.p.Flag16() && !r.interlacing && r.dword_5d4594_3799484 == 0 &&
+		(!r.p.Clip() || r.pix.Rect.In(r.p.ClipRect())) {
+		data := img.Pixdata()
+		if len(data) >= 17 {
+			r.lastFullImage = r.pix.Rect.Min == (image.Point{}) &&
+				binary.LittleEndian.Uint32(data) == uint32(r.pix.Rect.Dx()) && binary.LittleEndian.Uint32(data[4:]) == uint32(r.pix.Rect.Dy()) &&
+				binary.LittleEndian.Uint32(data[8:]) == 0 && binary.LittleEndian.Uint32(data[12:]) == 0
+		}
+	}
+	if r.hd.active {
+		typ := img.Type() & 0x3F
+		unsupported := (typ != 3 && typ != 8) || r.p == nil || r.p.IsAlphaEnabled() || r.p.Multiply14() || r.p.Colorize17() || r.p.Flag16() || r.interlacing
+		if r.hd.world {
+			unsupported = (typ < 3 || typ > 6) && typ != 8 || r.p == nil || r.interlacing
+		}
+		if unsupported {
+			r.InvalidateHDFrame()
+		}
+	}
+	if r.drawTrace != nil {
+		r.traceDraw(fmt.Sprintf("image:type%d", img.Type()&0x3F))
+		if r.p != nil {
+			r.traceDraw(fmt.Sprintf("image:state alpha=%t/%d multiply=%t colorize=%t flag16=%t interlace=%t", r.p.IsAlphaEnabled(), r.p.Alpha(), r.p.Multiply14(), r.p.Colorize17(), r.p.Flag16(), r.interlacing))
+		}
 	}
 	switch img.Type() & 0x3F {
 	case 2, 7:
@@ -103,6 +135,9 @@ func (r *NoxRender) DrawImage16(img Image16, pos image.Point) {
 		var ops drawOps
 		ops.draw27 = r.pixBlendPremult
 		r.nox_client_drawImg_aaa_4C79F0(&ops, img, pos)
+	}
+	if menuSprite != nil && r.hd.active {
+		r.drawHDMenuSprite(menuSprite, pos, menuClip)
 	}
 }
 
@@ -199,7 +234,7 @@ func (r *NoxRender) nox_client_drawImg_aaa_4C79F0(ops *drawOps, img Image16, pos
 		}
 	}
 	r.interlacingY ^= pos.Y & 0x1
-	pixbuf := r.PixBuffer()
+	pixbuf := r.hdPixBuffer()
 	pitch := pixbuf.Stride
 	for i := 0; i < int(height); i++ {
 		dst := pixbuf.Pix[pitch*(pos.Y+i)+pos.X:]
@@ -216,6 +251,12 @@ func (r *NoxRender) nox_client_drawImg_aaa_4C79F0(ops *drawOps, img Image16, pos
 		var val int
 		for j := 0; j < int(width); j += val {
 			op := src[0]
+			if r.hd.active && !r.hd.world && op&0xF != 1 && op&0xF != 2 && op&0xF != 7 {
+				r.InvalidateHDFrame()
+			}
+			if r.drawTrace != nil {
+				r.traceDraw(fmt.Sprintf("image:op%d", op&0xF))
+			}
 			val = int(src[1])
 			src = src[2:]
 
@@ -225,10 +266,17 @@ func (r *NoxRender) nox_client_drawImg_aaa_4C79F0(ops *drawOps, img Image16, pos
 			}
 			switch op & 0xF {
 			case 2, 7:
+				if r.hd.active {
+					r.hdImageSpan(image.Pt(pos.X+j, pos.Y+i), src, val, ops.draw27)
+				}
 				dst, src = ops.draw27(dst, src, val)
 			case 4:
+				r.hdImageSpanIndexed(image.Pt(pos.X+j, pos.Y+i), src, val, op>>4, ops.draw4)
 				dst, src = ops.draw4(dst, src, op>>4, val)
 			case 5:
+				if r.hd.active {
+					r.hdImageSpan(image.Pt(pos.X+j, pos.Y+i), src, val, ops.draw5)
+				}
 				dst, src = ops.draw5(dst, src, val)
 			case 6:
 				dst, src = ops.draw6(dst, src, val)
@@ -260,7 +308,7 @@ func (r *NoxRender) nox_client_drawXxx_4C7C80(ops *drawOps, pix []byte, pos imag
 		pix = skipPixdata(pix, width, dy)
 	}
 	r.interlacingY ^= ys & 0x1
-	pixbuf := r.PixBuffer()
+	pixbuf := r.hdPixBuffer()
 	pitch := pixbuf.Stride
 	for i := 0; i < height; i++ {
 		yi := ys + i
@@ -287,6 +335,12 @@ func (r *NoxRender) nox_client_drawXxx_4C7C80(ops *drawOps, pix []byte, pos imag
 		var n int
 		for j := 0; j < width; j += n {
 			op := pix[0]
+			if r.hd.active && !r.hd.world && op&0xF != 1 && op&0xF != 2 && op&0xF != 7 {
+				r.InvalidateHDFrame()
+			}
+			if r.drawTrace != nil {
+				r.traceDraw(fmt.Sprintf("image:op%d", op&0xF))
+			}
 			n = int(pix[1]) // TODO: custom bag images fail here
 			pix = pix[2:]
 
@@ -336,9 +390,13 @@ func (r *NoxRender) nox_client_drawXxx_4C7C80(ops *drawOps, pix []byte, pos imag
 				xw -= d
 			}
 			if fnc8 != nil {
+				r.hdImageSpanIndexed(image.Pt(xs, yi), pix2, xw, op>>4, fnc8)
 				_, _ = fnc8(row2, pix2, op>>4, xw)
 				pix = pix[n:]
 			} else {
+				if r.hd.active {
+					r.hdImageSpan(image.Pt(xs, yi), pix2, xw, fnc16)
+				}
 				_, _ = fnc16(row2, pix2, xw)
 				pix = pix[2*n:]
 			}
@@ -412,14 +470,25 @@ func pixOpSrc(dst []uint16, src []byte, n int) (_ []uint16, _ []byte) {
 	return dst[n:], src[n*2:]
 }
 
+// The multiplied source only depends on the texel, so it is reused while the
+// texel repeats (always pairs in density-2 world spans). Blend order is unchanged.
 func (r *NoxRender) pixOpOverMultiplyAlpha50(dst []uint16, src []byte, sz int) (_ []uint16, _ []byte) {
+	if sz < 0 {
+		panic("negative size")
+	}
 	mul := r.p.ColorMultA()
-
-	return r.drawOpU16(dst, src, sz, func(old uint16, src uint16) uint16 {
-		c1 := SplitColor16(src)
-		c2 := SplitColor16(old)
-		return c1.Mult(mul).Over(c2).Make16()
-	})
+	dnext := dst[sz:]
+	snext := src[2*sz:]
+	var last uint16
+	var c1 Color16
+	for i := 0; i < sz; i++ {
+		c := binary.LittleEndian.Uint16(src[2*i:])
+		if i == 0 || c != last {
+			last, c1 = c, SplitColor16(c).Mult(mul)
+		}
+		dst[i] = c1.Over(SplitColor16(dst[i])).Make16()
+	}
+	return dnext, snext
 }
 
 func (r *NoxRender) pixOpOver4444(dst []uint16, src []byte, sz int) (_ []uint16, _ []byte) {
@@ -451,13 +520,23 @@ func (r *NoxRender) pixOpOver4444Alpha(dst []uint16, src []byte, sz int) (_ []ui
 	})
 }
 
+// The result only depends on the texel, so it is reused while the texel repeats.
 func (r *NoxRender) pixOpSrcMultiply(dst []uint16, src []byte, sz int) (_ []uint16, _ []byte) {
+	if sz < 0 {
+		panic("negative size")
+	}
 	mul := r.p.ColorMultA()
-
-	return r.drawOpU16(dst, src, sz, func(_ uint16, c2 uint16) uint16 {
-		c := SplitColor16(c2)
-		return c.Mult(mul).Make16()
-	})
+	dnext := dst[sz:]
+	snext := src[2*sz:]
+	var last, out uint16
+	for i := 0; i < sz; i++ {
+		c := binary.LittleEndian.Uint16(src[2*i:])
+		if i == 0 || c != last {
+			last, out = c, SplitColor16(c).Mult(mul).Make16()
+		}
+		dst[i] = out
+	}
+	return dnext, snext
 }
 
 func (r *NoxRender) pixOpOverAlpha50(dst []uint16, src []byte, sz int) (_ []uint16, _ []byte) {

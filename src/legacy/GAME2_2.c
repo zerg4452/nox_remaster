@@ -107,6 +107,10 @@ void* nox_client_spriteUnderCursorXxx_1096644 = 0;
 uint32_t nox_client_highResFloors_154952 = 1;
 void* nox_video_tileBuf_ptr_3798796 = 0;
 void* nox_video_tileBuf_end_3798844 = 0;
+unsigned int nox_world_hd_tiles = 0;
+extern void nox_world_hd_tile(int x, int y, void* base, void* edge);
+extern void nox_world_hd_unsupported(int kind);
+extern void nox_world_hd_tile_opaque(int index, unsigned short* src, int n);
 
 //----- (00476080) --------------------------------------------------------
 int sub_476080(unsigned char* a1) {
@@ -323,6 +327,12 @@ void* sub_476AE0(nox_draw_viewport_t* vp, nox_drawable* dr) {
 
 //----- (00476D70) --------------------------------------------------------
 short sub_476D70(uint32_t* a1, int* a2, unsigned int a3) {
+	if (nox_world_hd_tiles) {
+		unsigned int offset = (uint32_t)a1 - (uint32_t)nox_video_tileBuf_ptr_3798796;
+		unsigned int size = (uint32_t)nox_video_tileBuf_end_3798844 - (uint32_t)nox_video_tileBuf_ptr_3798796;
+		if ((a3 & 1) || (offset & 1) || offset >= size || a3 > size-offset) { nox_world_hd_unsupported(1); }
+		else { nox_world_hd_tile_opaque(offset/2, (unsigned short*)a2, a3/2); }
+	}
 	uint32_t* v3;  // edi
 	signed int v4; // ecx
 	int* v5;       // esi
@@ -1664,7 +1674,15 @@ uint16_t* sub_480250(uint8_t* a1, uint16_t* a2) {
 
 //----- (00480EF0) --------------------------------------------------------
 int nox_getBackbufferPitch();
+unsigned int nox_menu_trace_enabled = 0;
+unsigned int nox_menu_hd_guard = 0;
+unsigned int nox_menu_hd_edge = 0;
+unsigned int nox_menu_trace_edge_calls = 0;
+unsigned int nox_menu_trace_background_calls = 0;
 int* nox_xxx_edgeDraw_480EF0(int a1, int a2, int a3, int* a4, int* a5, int a6, int a7, int a8, int a9, int a10) {
+	if (nox_world_hd_tiles && !nox_client_highResFrontWalls_80820) { nox_world_hd_unsupported(2); }
+	if (nox_menu_hd_guard) { nox_menu_hd_edge = 1; }
+	if (nox_menu_trace_enabled) { nox_menu_trace_edge_calls++; }
 	int* result;                                // eax
 	int v10;                                    // ebx
 	char v11;                                   // cl
@@ -1946,6 +1964,7 @@ void sub_481410() { nox_xxx_waypointCounterMB_587000_154948 = -1; }
 
 //----- (004815E0) --------------------------------------------------------
 char nox_xxx_tileDraw_4815E0(uint32_t* a1, int a2) {
+	if (nox_world_hd_tiles) { nox_world_hd_tile(a1[0], a1[1], (void*)a2, 0); }
 	unsigned int v2; // ebx
 	int v3;          // eax
 	char* v4;        // esi
@@ -2018,6 +2037,7 @@ char nox_xxx_tileDraw_4815E0(uint32_t* a1, int a2) {
 bool get_nox_client_texturedFloors_154956();
 uint32_t dword_5d4594_1193156 = 0;
 char* sub_481770(uint32_t* a1, int a2, unsigned short a3) {
+	if (nox_world_hd_tiles) { nox_world_hd_unsupported(1); }
 	unsigned char v4; // cl
 	unsigned int v5;  // edx
 	unsigned int v6;  // esi
@@ -2121,6 +2141,7 @@ char nox_xxx_drawTexEdgesProbably_481900(uint32_t* a1, uint32_t* a2) {
 	v5 = dword_5d4594_3798836;
 	addr = (*getMemU32Ptr(0x85B3FC, 28676 + 60 * v4) + 4 * (a2[3] + *getMemU16Ptr(0x85B3FC, 28690 + 60 * v4)));
 	v6 = *(uint32_t*)addr;
+	if (nox_world_hd_tiles) { nox_world_hd_tile(a1[0], a1[1], (void*)v3, (void*)v6); }
 	v7 = dword_5d4594_3798840;
 	*getMemU32Ptr(0x5D4594, 2523980 + 4 * v4) = 1;
 	v8 = dword_5d4594_3798804 * (v7 + a1[1] - v2) + (uint32_t)nox_video_tileBuf_ptr_3798796 +

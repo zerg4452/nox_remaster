@@ -19,6 +19,19 @@ type noxRenderFade struct {
 	arr [4]fade
 }
 
+// FadeState contains values only, never a callback or a mutable fade reference.
+type FadeState struct {
+	Key, Flags, Remaining int
+}
+
+// FadeStates observes the current post-draw state without advancing a fade.
+func (r *NoxRender) FadeStates() (out [4]FadeState) {
+	for i, f := range r.fade.arr {
+		out[i] = FadeState{int(f.key), int(f.flags), f.remaining}
+	}
+	return out
+}
+
 type fadeFlags int
 
 func (f fadeFlags) Has(f2 fadeFlags) bool {
@@ -182,8 +195,8 @@ func (r *NoxRender) FadeClearScreen(menu bool, cl color.Color) bool {
 		return false
 	}
 	f.drawFunc = func(_ *fade) {
-		pix := r.PixBuffer()
-		r.DrawRectFilledOpaque(0, 0, pix.Rect.Dx(), pix.Rect.Dy(), cl)
+		rc := r.PixBufferRect()
+		r.DrawRectFilledOpaque(0, 0, rc.Dx(), rc.Dy(), cl)
 	}
 	return true
 }
@@ -206,8 +219,7 @@ func (r *NoxRender) FadeInScreen(t int, menu bool, done func()) bool {
 	)
 	f.drawFunc = func(f *fade) {
 		c := int(cur)
-		pix := r.PixBuffer()
-		r.drawFadeScreen(pix.Rect, c)
+		r.drawFadeScreen(r.PixBufferRect(), c)
 		cur += dv
 	}
 	return true
@@ -230,8 +242,7 @@ func (r *NoxRender) FadeOutScreen(t int, menu bool, done func()) int {
 	)
 	f.drawFunc = func(f *fade) {
 		c := int(cur)
-		pix := r.PixBuffer()
-		r.drawFadeScreen(pix.Rect, c)
+		r.drawFadeScreen(r.PixBufferRect(), c)
 		cur -= dv
 	}
 	r.StopFade(FadeClearScreenKey)
@@ -246,18 +257,24 @@ func (r *NoxRender) drawFadeScreen(rc image.Rectangle, bc int) {
 			return
 		}
 	}
-	pix := r.PixBuffer()
+	pix := r.hdPixBuffer()
+	fadePixel := func(v uint16) uint16 {
+		c := SplitColor16(v)
+		cr := uint64(c.R) - uint64(bc)
+		cg := uint64(c.G) - uint64(bc)
+		cb := uint64(c.B) - uint64(bc)
+		c.R = uint16(^(cr >> 32) & cr)
+		c.G = uint16(^(cg >> 32) & cg)
+		c.B = uint16(^(cb >> 32) & cb)
+		return c.Make16()
+	}
+	if r.hd.active {
+		r.hdRect(rc, fadePixel)
+	}
 	for y := rc.Min.Y; y < rc.Max.Y; y++ {
 		for x := rc.Min.X; x < rc.Max.X; x++ {
 			ind := pix.PixOffset(x, y)
-			c := SplitColor16(pix.Pix[ind])
-			cr := uint64(c.R) - uint64(bc)
-			cg := uint64(c.G) - uint64(bc)
-			cb := uint64(c.B) - uint64(bc)
-			c.R = uint16(^(cr >> 32) & cr)
-			c.G = uint16(^(cg >> 32) & cg)
-			c.B = uint16(^(cb >> 32) & cb)
-			pix.Pix[ind] = c.Make16()
+			pix.Pix[ind] = fadePixel(pix.Pix[ind])
 		}
 	}
 }

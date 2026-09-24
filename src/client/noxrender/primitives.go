@@ -13,7 +13,10 @@ func (r *NoxRender) DrawPixel(pos image.Point, cl color.Color) {
 		return
 	}
 	cl16 := noxcolor.ToRGBA5551Color(cl)
-	r.PixBuffer().SetRGBA5551(pos.X, pos.Y, cl16)
+	r.hdPixBuffer().SetRGBA5551(pos.X, pos.Y, cl16)
+	if r.hd.active {
+		r.hdRect(image.Rectangle{Min: pos, Max: pos.Add(image.Pt(1, 1))}, func(uint16) uint16 { return uint16(cl16) })
+	}
 }
 
 func (r *NoxRender) DrawLineHorizontal(x1, y, x2 int, cl color.Color) {
@@ -40,17 +43,28 @@ func (r *NoxRender) DrawLineHorizontal(x1, y, x2 int, cl color.Color) {
 			xmax = rect.Max.X
 		}
 	}
-	pix := r.PixBuffer()
+	pix := r.hdPixBuffer()
 	cl16 := noxcolor.ToRGBA5551Color(cl)
 	if r.Data().IsAlphaEnabled() {
 		bc := SplitColor(cl16)
 		alpha := uint16(r.Data().Alpha())
+		if r.hd.active {
+			r.hdRect(image.Rect(xmin, y, xmax+1, y+1), func(v uint16) uint16 { return bc.OverAlpha(alpha, SplitColor16(v)).Make16() })
+		}
 		for x := xmin; x <= xmax; x++ {
 			ind := pix.PixOffset(x, y)
 			c := SplitColor16(pix.Pix[ind])
 			pix.Pix[ind] = bc.OverAlpha(alpha, c).Make16()
 		}
 	} else {
+		if r.hd.active {
+			rc := image.Rect(xmin, y, xmax+1, y+1)
+			if r.hd.world {
+				r.hdFillWorldRect(rc, uint16(cl16))
+			} else {
+				r.hdRect(rc, func(uint16) uint16 { return uint16(cl16) })
+			}
+		}
 		for x := xmin; x <= xmax; x++ {
 			pix.SetRGBA5551(x, y, cl16)
 		}
@@ -81,8 +95,11 @@ func (r *NoxRender) drawLineVertical(x, y1, y2 int, cl color.Color) {
 			ymax = rect.Max.Y
 		}
 	}
-	pix := r.PixBuffer()
+	pix := r.hdPixBuffer()
 	cl16 := noxcolor.ToRGBA5551Color(cl)
+	if r.hd.active {
+		r.hdRect(image.Rect(x, ymin, x+1, ymax+1), func(uint16) uint16 { return uint16(cl16) })
+	}
 	for y := ymin; y <= ymax; y++ {
 		pix.SetRGBA5551(x, y, cl16)
 	}
@@ -208,7 +225,7 @@ func (r *NoxRender) DrawLine(p1, p2 image.Point, cl color.Color) {
 		r.DrawLineHorizontal(p1.X, p1.Y, p2.X, cl)
 		return
 	}
-	pix := r.PixBuffer()
+	pix := r.worldPrimitiveBuffer()
 	cl16 := noxcolor.ToRGBA5551Color(cl)
 
 	y := p1.Y
@@ -230,6 +247,7 @@ func (r *NoxRender) DrawLine(p1, p2 image.Point, cl color.Color) {
 		dv := 2*w - h
 		for i := 0; i <= h; i++ {
 			pix.SetRGBA5551(x/2, y, cl16)
+			r.worldPrimitivePixel(x/2, y, func(uint16) uint16 { return cl16.Color16() })
 			y += dy
 			if dv >= 0 {
 				dv += 2 * (w - h)
@@ -242,6 +260,7 @@ func (r *NoxRender) DrawLine(p1, p2 image.Point, cl color.Color) {
 		dv := 2*h - w
 		for i := 0; i <= w; i++ {
 			pix.SetRGBA5551(x/2, y, cl16)
+			r.worldPrimitivePixel(x/2, y, func(uint16) uint16 { return cl16.Color16() })
 			x += dx
 			if dv >= 0 {
 				dv += 2 * (h - w)
@@ -258,7 +277,7 @@ func (r *NoxRender) DrawLineAlpha(p1, p2 image.Point, cl color.Color) {
 	if d.Clip() && !r.clipToRect2(&p1, &p2) {
 		return
 	}
-	pix := r.PixBuffer()
+	pix := r.worldPrimitiveBuffer()
 	alpha := uint16(d.Alpha())
 	bc := SplitColor(noxcolor.ToRGBA5551Color(cl))
 
@@ -281,6 +300,7 @@ func (r *NoxRender) DrawLineAlpha(p1, p2 image.Point, cl color.Color) {
 			ind := pix.PixOffset(p.X, p.Y)
 			c := SplitColor16(pix.Pix[ind])
 			pix.Pix[ind] = c.OverAlpha(alpha, bc).Make16()
+			r.worldPrimitivePixel(p.X, p.Y, func(v uint16) uint16 { return SplitColor16(v).OverAlpha(alpha, bc).Make16() })
 			p.Y += dy
 			if v >= 0 {
 				p.X += dx
@@ -295,6 +315,7 @@ func (r *NoxRender) DrawLineAlpha(p1, p2 image.Point, cl color.Color) {
 			ind := pix.PixOffset(p.X, p.Y)
 			c := SplitColor16(pix.Pix[ind])
 			pix.Pix[ind] = c.OverAlpha(alpha, bc).Make16()
+			r.worldPrimitivePixel(p.X, p.Y, func(v uint16) uint16 { return SplitColor16(v).OverAlpha(alpha, bc).Make16() })
 			p.X += dx
 			if v >= 0 {
 				v += 2 * (height - width)
@@ -406,7 +427,7 @@ func (r *NoxRender) DrawRectFilledOpaque(x, y, w, h int, cl color.Color) {
 		rw = out.Dx()
 		rh = out.Dy()
 	}
-	sz := r.PixBuffer().Rect
+	sz := r.PixBufferRect()
 	if rx == 0 && ry == 0 && rw == sz.Dx() && rh == sz.Dy() {
 		r.ClearScreen(cl)
 	} else {
@@ -424,7 +445,10 @@ func (r *NoxRender) drawRectFilledOpaque(x, y, w, h int, cl color.Color) {
 		return
 	}
 	c := noxcolor.ToRGBA5551Color(cl)
-	pix := r.PixBuffer()
+	if r.hd.active {
+		r.hdRect(image.Rect(x, y, x+w, y+h), func(uint16) uint16 { return uint16(c) })
+	}
+	pix := r.hdPixBuffer()
 	for i := 0; i < h; i++ {
 		for j := 0; j < w; j++ {
 			pix.SetRGBA5551(x+j, y+i, c)
@@ -436,8 +460,11 @@ func (r *NoxRender) drawRectFilledOpaqueOver(x, y, w, h int, cl color.Color) {
 	if w == 0 || h == 0 {
 		return
 	}
-	pix := r.PixBuffer()
+	pix := r.hdPixBuffer()
 	bc := SplitColor(noxcolor.ToRGBA5551Color(cl))
+	if r.hd.active {
+		r.hdRect(image.Rect(x, y, x+w, y+h), func(v uint16) uint16 { return SplitColor16(v).Over(bc).Make16() })
+	}
 	for i := 0; i < h; i++ {
 		for j := 0; j < w; j++ {
 			ind := pix.PixOffset(x+j, y+i)
@@ -466,12 +493,13 @@ func (r *NoxRender) drawRectFilledAlpha(x, y, w, h int) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	pix := r.PixBuffer()
+	pix := r.worldPrimitiveBuffer()
 	const mask = 0xFBDE
 	for i := 0; i < h; i++ {
 		for j := 0; j < w; j++ {
 			ind := pix.PixOffset(x+j, y+i)
 			pix.Pix[ind] = (mask & pix.Pix[ind]) / 2
+			r.worldPrimitivePixel(x+j, y+i, func(v uint16) uint16 { return (mask & v) / 2 })
 		}
 	}
 }
@@ -542,7 +570,7 @@ func (r *NoxRender) circleClipped(x, y, rad int) bool {
 
 func (r *NoxRender) DrawCircleOpaque(cx, cy, rad int, cl color.Color) {
 	d := r.Data()
-	pix := r.PixBuffer()
+	pix := r.worldPrimitiveBuffer()
 	cl16 := noxcolor.ToRGBA5551Color(cl)
 	if d.Clip() && r.circleClipped(cx, cy, rad) {
 		clip := d.ClipRect()
@@ -551,10 +579,12 @@ func (r *NoxRender) DrawCircleOpaque(cx, cy, rad int, cl color.Color) {
 				return
 			}
 			pix.SetRGBA5551(x, y, cl16)
+			r.worldPrimitivePixel(x, y, func(uint16) uint16 { return cl16.Color16() })
 		})
 	} else {
 		r.drawCircleWith(cx, cy, rad, func(x, y int) {
 			pix.SetRGBA5551(x, y, cl16)
+			r.worldPrimitivePixel(x, y, func(uint16) uint16 { return cl16.Color16() })
 		})
 	}
 }
@@ -562,7 +592,7 @@ func (r *NoxRender) DrawCircleOpaque(cx, cy, rad int, cl color.Color) {
 func (r *NoxRender) DrawCircleAlpha(cx, cy, rad int, cl color.Color) {
 	d := r.Data()
 	bc := SplitColor(noxcolor.ToRGBA5551Color(cl))
-	pix := r.PixBuffer()
+	pix := r.worldPrimitiveBuffer()
 	clip := pix.Rect
 	if d.Clip() && r.circleClipped(cx, cy, rad) {
 		clip = d.ClipRect()
@@ -574,6 +604,7 @@ func (r *NoxRender) DrawCircleAlpha(cx, cy, rad int, cl color.Color) {
 		ind := pix.PixOffset(x, y)
 		c := SplitColor16(pix.Pix[ind])
 		pix.Pix[ind] = c.Over2(bc).Make16()
+		r.worldPrimitivePixel(x, y, func(v uint16) uint16 { return SplitColor16(v).Over2(bc).Make16() })
 	})
 }
 

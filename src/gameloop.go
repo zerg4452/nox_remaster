@@ -36,6 +36,8 @@ var (
 	mainloopStopError       bool
 	mainloopNoSkip          bool
 	useFrameLimit           = true
+	menuPerfWait            func(time.Duration)
+	worldPerfWait           func(elapsed, requested time.Duration)
 	mainloopHook            func()
 )
 
@@ -79,19 +81,54 @@ func nox_game_exit_xxx2() {
 	nox_game_exit_xxx_43DE60()
 }
 
+// framePacedBeforePresent is set when this loop iteration already waited for
+// its tick right before presenting; the loop-end limiter then skips once.
+var framePacedBeforePresent bool
+
+func frameLimitUsesTicks() bool {
+	return noxflags.HasGame(noxflags.GameHost) && noxflags.HasGame(noxflags.GameClient) && !noxflags.HasEngine(noxflags.EngineNoRendering) && noxflags.HasGame(noxflags.GameFlag29)
+}
+
+// mainloopPaceBeforePresent moves the in-game tick wait between drawing and
+// presenting, so presentation follows the fixed tick schedule instead of
+// drifting with the variable world draw time. The schedule itself and the
+// menu/non-host RateWait path are unchanged.
+func mainloopPaceBeforePresent() {
+	if !useFrameLimit || !frameLimitUsesTicks() || noxflags.HasEngine(noxflags.EnginePause) {
+		return
+	}
+	mainloopFrameLimit()
+	framePacedBeforePresent = true
+}
+
 func mainloopFrameLimit() {
+	if framePacedBeforePresent {
+		framePacedBeforePresent = false
+		return
+	}
+	if observe := menuPerfWait; observe != nil {
+		started := time.Now()
+		defer func() { observe(time.Since(started)) }()
+	}
+	requested := time.Duration(0)
+	if observe := worldPerfWait; observe != nil {
+		started := time.Now()
+		defer func() { observe(time.Since(started), requested) }()
+	}
 	if !useFrameLimit {
 		return
 	}
-	if noxflags.HasGame(noxflags.GameHost) && noxflags.HasGame(noxflags.GameClient) && !noxflags.HasEngine(noxflags.EngineNoRendering) && noxflags.HasGame(noxflags.GameFlag29) {
+	if frameLimitUsesTicks() {
 		if noxflags.HasEngine(noxflags.EnginePause) {
 			return
 		}
 		if dt := nox_ticks_getNext(); dt > 0 {
+			requested = dt
 			noxServer.LoopSleep(dt)
 		}
 		return
 	}
+	requested = -1 // RateWait's internal target is not exposed here.
 	noxServer.RateWait()
 }
 

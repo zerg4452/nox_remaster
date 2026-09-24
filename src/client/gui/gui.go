@@ -333,7 +333,7 @@ func (g *GUI) FreeDestroyed() {
 		if g.WinYYY == win {
 			g.WinYYY = nil
 		}
-		win.Func94(WindowDestroy{})
+		win.callFunc94(WindowDestroy{})
 		setExt(win, nil)
 		g.alloc.FreeObjectFirst(win)
 		win = prev
@@ -380,8 +380,9 @@ func (g *GUI) destroyWindow(win *Window) {
 	g.free = win
 
 	ext := win.ext()
-	// clear everything except GUI reference
-	*ext = windowExt{GUI: ext.GUI}
+	// Keep the destruction callback until deferred reclamation; it owns widget
+	// data and, for localized entry fields, detached IME popup windows.
+	*ext = windowExt{GUI: ext.GUI, Func94: ext.Func94}
 }
 
 func (g *GUI) showModal(win *Window) int {

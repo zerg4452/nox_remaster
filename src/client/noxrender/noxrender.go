@@ -351,12 +351,15 @@ func NewRender(f Framer) *NoxRender {
 }
 
 type NoxRender struct {
-	p     *RenderData
-	f     Framer
-	Bag   RenderSprites
-	Fonts RenderFonts
-	Part  renderParticles
-	pix   *noximage.Image16
+	p             *RenderData
+	f             Framer
+	Bag           RenderSprites
+	Fonts         RenderFonts
+	Part          renderParticles
+	pix           *noximage.Image16
+	drawTrace     map[string]uint64
+	hd            hdTarget
+	lastFullImage bool
 
 	colors struct {
 		revTable []byte // map[Color16]byte
@@ -383,10 +386,23 @@ func (r *NoxRender) PixBufferRect() image.Rectangle {
 }
 
 func (r *NoxRender) PixBuffer() *noximage.Image16 {
+	r.InvalidateHDFrame()
+	if r.drawTrace != nil {
+		r.traceBufferAccess()
+	}
+	return r.pix
+}
+
+// hdPixBuffer is only for internal operations mirrored to the HD target.
+func (r *NoxRender) hdPixBuffer() *noximage.Image16 {
+	if r.drawTrace != nil {
+		r.traceBufferAccess()
+	}
 	return r.pix
 }
 
 func (r *NoxRender) SetPixBuffer(pix *noximage.Image16) {
+	r.InvalidateHDFrame()
 	r.pix = pix
 }
 
@@ -421,7 +437,11 @@ func (r *NoxRender) CopyPixBuffer() *image.NRGBA {
 }
 
 func (r *NoxRender) ClearScreen(cl color.Color) {
+	r.traceDraw("direct:ClearScreen")
 	u16 := noxcolor.ModelRGBA5551.Convert16(cl).Color16()
+	if r.hd.active {
+		r.hdRect(r.pix.Rect, func(uint16) uint16 { return u16 })
+	}
 	for i := range r.pix.Pix {
 		r.pix.Pix[i] = u16
 	}

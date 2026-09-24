@@ -62,7 +62,19 @@ func (c *Client) clientDraw() bool {
 }
 
 func (c *Client) copyPixBuffer() {
-	c.Win.CopyBuffer(noxPixBuffer.img)
+	selected := noxPixBuffer.img
+	hd := menuHD.take()
+	if worldHD.ready != nil {
+		hd = worldHD.ready
+		worldHD.ready = nil
+	}
+	if hd != nil {
+		selected = hd
+	}
+	c.observeMenuOutput(selected, hd != nil)
+	c.observeWorldOutput(selected, hd != nil)
+	c.observeMenuPerfOutput(selected, hd != nil)
+	c.Win.CopyBuffer(selected)
 	*memmap.PtrUint32(0x973A20, 496)++
 }
 

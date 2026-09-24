@@ -267,6 +267,10 @@ func (r *NoxRender) drawString(fnt font.Face, s string, pos image.Point) int {
 	r.text.Src = image.NewUniform(r.p.TextColor())
 	r.text.Dst = r.pix.SubImage(r.p.ClipRect())
 	r.text.Dot = fixed.P(pos.X, pos.Y+dy)
+	r.traceDraw("text:drawString")
+	hdDrawing := r.text.face.hdDrawing
+	r.text.face.hdDrawing = true
+	defer func() { r.text.face.hdDrawing = hdDrawing }()
 	r.text.DrawString(s)
 	return r.text.Dot.X.Round()
 }
@@ -459,8 +463,9 @@ func (r *NoxRender) GetStringSizeWrappedStyle(fnt font.Face, s string, maxW int)
 }
 
 type renderFace struct {
-	r *NoxRender
-	f font.Face
+	r         *NoxRender
+	f         font.Face
+	hdDrawing bool
 }
 
 func (f *renderFace) Close() error {
@@ -471,6 +476,9 @@ func (f *renderFace) Glyph(dot fixed.Point26_6, r rune) (dr image.Rectangle, mas
 	dr, mask, maskp, advance, ok = f.f.Glyph(dot, r)
 	if ok {
 		advance += fixed.I(f.r.text.advance)
+	}
+	if f.hdDrawing && f.r.hd.active {
+		f.r.hdGlyph(dr, mask, maskp)
 	}
 	return
 }
