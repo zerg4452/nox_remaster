@@ -66,26 +66,25 @@ func tileRow(y int) (start, n, offset int) {
 	return
 }
 
-func tileSamples(raw []byte, offset, x, y int, hd *Floor) (v [4]uint16, detail bool) {
+// floorSamples is the ConvertAsset output size of one 46x46 floor (stride 92).
+const floorSamples = 92 * 92
+
+// hd holds the floor's density-2 RGB555 samples from ConvertAsset, nil for original.
+func tileSamples(raw []byte, offset, x, y int, hd []uint16) (v [4]uint16, detail bool) {
 	if hd != nil {
-		for dy := 0; dy < 2; dy++ {
-			for dx := 0; dx < 2; dx++ {
-				c := hd.NRGBAAt(x*2+dx, y*2+dy)
-				v[dy*2+dx] = uint16(c.R&248)<<7 | uint16(c.G&248)<<2 | uint16(c.B)>>3
-			}
-		}
-		return v, true
+		i := y*2*92 + x*2
+		return [4]uint16{hd[i], hd[i+1], hd[i+92], hd[i+93]}, true
 	}
 	p := binary.LittleEndian.Uint16(raw[2*offset:])
 	return [4]uint16{p, p, p, p}, false
 }
 
 // Base mirrors one complete packed type-0 diamond at its linear-ring anchor.
-func (t *Tiles) Base(anchor int, raw []byte, hd *Floor) bool {
+func (t *Tiles) Base(anchor int, raw []byte, hd []uint16) bool {
 	if !t.Ready() {
 		return false
 	}
-	if len(raw) != 2116 {
+	if len(raw) != 2116 || (hd != nil && len(hd) != floorSamples) {
 		t.Invalidate()
 		return false
 	}
@@ -103,11 +102,11 @@ func (t *Tiles) Base(anchor int, raw []byte, hd *Floor) bool {
 // Edge mirrors packed edge ops in original order: 1 keep destination,
 // 2 edge-owned opaque pixels, 3 source floor (possibly HD). Validate first so
 // a malformed stream cannot leave a partially accepted ring update.
-func (t *Tiles) Edge(anchor int, raw, edge []byte, hd *Floor) bool {
+func (t *Tiles) Edge(anchor int, raw, edge []byte, hd []uint16) bool {
 	if !t.Ready() {
 		return false
 	}
-	if len(raw) != 2116 || len(edge) < 2 || edge[0] > edge[1] || edge[1] >= 46 {
+	if len(raw) != 2116 || (hd != nil && len(hd) != floorSamples) || len(edge) < 2 || edge[0] > edge[1] || edge[1] >= 46 {
 		t.Invalidate()
 		return false
 	}

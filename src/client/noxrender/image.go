@@ -47,6 +47,9 @@ func (r *NoxRender) DrawImage16(img Image16, pos image.Point) {
 	if p, ok := img.(*Image); ok && p == nil {
 		return
 	}
+	if r.hd.world {
+		r.CensusImage(img)
+	}
 	menuSprite, menuClip := r.hdMenuSprite(img, pos)
 	previousSuppression := r.hd.suppressImageSpan
 	r.hd.suppressImageSpan = menuSprite != nil

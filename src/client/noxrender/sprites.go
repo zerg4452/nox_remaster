@@ -20,7 +20,6 @@ import (
 	"github.com/noxworld-dev/opennox-lib/log"
 	"github.com/noxworld-dev/opennox-lib/noximage/pcx"
 	"github.com/noxworld-dev/opennox-lib/things"
-	"github.com/noxworld-dev/opennox/v1/client/noxrender/worldhd"
 
 	"github.com/noxworld-dev/opennox/v1/legacy/common/alloc"
 	"github.com/noxworld-dev/opennox/v1/legacy/common/alloc/handles"
@@ -137,6 +136,8 @@ func (img *Image) Pixdata() []byte {
 	}
 	// TODO: remove interning when we get rid of C renderer
 	img.cdata, img.cfree = alloc.CloneSlice(data)
+	pixdataInterned.bytes += int64(len(data))
+	pixdataInterned.count++
 	return img.cdata
 }
 
@@ -203,25 +204,25 @@ type bagImage struct {
 }
 
 func (b *RenderSprites) ReadVideoBag() error {
-	b.worldFloors = nil
+	_ = b.SetWorldHDAssets(nil)
 	if err := b.readVideobag("video.bag"); err != nil {
 		return err
 	}
 	if dir := os.Getenv("NOX_WORLD_HD_FLOORS"); dir != "" {
-		if err := b.SetWorldFloors(os.DirFS(dir)); err != nil {
+		if err := b.SetWorldHDAssets(os.DirFS(dir)); err != nil {
 			imgLog.Printf("world-hd assets rejected; original retained: %v", err)
 		} else {
-			imgLog.Printf("world-hd assets registered=%d (not output verification)", b.WorldFloorCount())
+			imgLog.Printf("world-hd assets registered=%d (not output verification)", b.WorldHDAssetCount())
 		}
 	}
 	return nil
 }
 
 type RenderSprites struct {
-	worldFloors map[*Image]*worldhd.Floor
-	bag         *bag.File
-	byHandle    map[ImageHandle]*Image
-	byIndex     []*Image
+	worldHD  *hdAssetLoader
+	bag      *bag.File
+	byHandle map[ImageHandle]*Image
+	byIndex  []*Image
 
 	once   sync.Once
 	err    error
@@ -235,7 +236,7 @@ func (b *RenderSprites) init() {
 }
 
 func (b *RenderSprites) Free() {
-	b.worldFloors = nil
+	_ = b.SetWorldHDAssets(nil)
 	b.bag.Close()
 	b.bag = nil
 	for _, img := range b.byIndex {

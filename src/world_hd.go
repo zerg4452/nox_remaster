@@ -38,7 +38,8 @@ func init() {
 			c.tiles.hd.Invalidate()
 			return
 		}
-		hd := b.WorldFloor(im)
+		c.r.CensusImage(im)
+		hd := b.WorldHDAsset(im)
 		if hd != nil {
 			worldHD.matched++
 		}
@@ -51,6 +52,7 @@ func init() {
 				c.tiles.hd.Invalidate()
 				return
 			}
+			c.r.CensusImage(e)
 			c.tiles.hd.Edge(anchor, im.Pixdata(), e.Pixdata(), hd)
 		}
 	}
@@ -68,7 +70,8 @@ func init() {
 func (c *Client) beginWorldHD() {
 	worldHD.open = false
 	worldHD.ready = nil
-	if nox_client_gui_flag_815132 != 0 || c.r.Bag.WorldFloorCount() == 0 || c.r.PixBufferRect() != image.Rect(0, 0, 1280, 720) {
+	c.r.Bag.BeginWorldHDAssets()
+	if nox_client_gui_flag_815132 != 0 || c.r.Bag.WorldHDAssetCount() == 0 || c.r.PixBufferRect() != image.Rect(0, 0, 1280, 720) {
 		return
 	}
 	worldHD.open = c.r.BeginWorldHDFrame()

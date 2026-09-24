@@ -10,6 +10,7 @@ import (
 // BeginWorldHDFrame is a separate density-2 contract; menu 1/3x eligibility is
 // unchanged. Logical pixels are only read and all unhandled writes still veto HD.
 func (r *NoxRender) BeginWorldHDFrame() bool {
+	censusFrame()
 	r.InvalidateHDFrame()
 	r.hd.world = true
 	r.hd.detail = 0

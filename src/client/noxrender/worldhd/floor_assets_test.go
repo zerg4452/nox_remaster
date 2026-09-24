@@ -4,11 +4,12 @@ package worldhd
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,31 +83,52 @@ func TestCaveHardBrownAssets(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	set, e := LoadFloors(os.DirFS(dir), specs, func(id int) (FloorSource, error) {
+	source := func(id int) FloorSource {
+		t.Helper()
 		if id >= len(records) {
-			return FloorSource{}, fmt.Errorf("missing record %d", id)
+			t.Fatalf("missing record %d", id)
 		}
 		r := records[id]
 		raw, e := r.Raw()
 		if e != nil {
-			return FloorSource{}, e
+			t.Fatal(e)
 		}
 		decoded, e := pcx.Decode(bytes.NewReader(raw), byte(r.Type))
 		if e != nil {
-			return FloorSource{}, e
+			t.Fatal(e)
 		}
-		return FloorSource{Type: int(r.Type), Raw: raw, Mask: decoded.Image, Offset: decoded.Point}, nil
-	})
-	if e != nil {
-		t.Fatal(e)
+		return FloorSource{Type: int(r.Type), Raw: raw, Mask: decoded.Image, Offset: decoded.Point}
 	}
 	for _, s := range specs {
-		if set.Lookup(s.ID, 0, s.SourceSHA256) == nil {
-			t.Fatalf("floor %d not selected", s.ID)
+		data, e := os.ReadFile(filepath.Join(dir, s.Path))
+		if e != nil {
+			t.Fatal(e)
 		}
-		t.Logf("floor %d: raw identity + recorded candidate hash + 8464 alpha pixels verified", s.ID)
+		dst := make([]uint16, AssetPixels(s))
+		if e := ConvertAsset(s, data, source(s.ID), dst); e != nil {
+			t.Fatal(e)
+		}
+		// Covered samples are the RGB555 of the PNG texel, as the former NRGBA
+		// floor path produced; ConvertAsset already enforced the 8464-pixel mask.
+		im, e := png.Decode(bytes.NewReader(data))
+		if e != nil {
+			t.Fatal(e)
+		}
+		for y := 0; y < 92; y++ {
+			for x := 0; x < 92; x++ {
+				if c := color.NRGBAModel.Convert(im.At(x, y)).(color.NRGBA); c.A != 0 {
+					if want := uint16(c.R&248)<<7 | uint16(c.G&248)<<2 | uint16(c.B)>>3; dst[y*92+x] != want {
+						t.Fatalf("floor %d sample %d,%d: %#x != %#x", s.ID, x, y, dst[y*92+x], want)
+					}
+				}
+			}
+		}
+		t.Logf("floor %d: raw identity + recorded candidate hash + 8464 alpha pixels + samples verified", s.ID)
 	}
-	if set.Lookup(9166, 0, sha256.Sum256([]byte("wrong source"))) != nil {
-		t.Fatal("wrong bag selected")
+	wrong := source(9166)
+	wrong.Raw = []byte("wrong source")
+	data, _ := os.ReadFile(filepath.Join(dir, specs[0].Path))
+	if ConvertAsset(specs[0], data, wrong, make([]uint16, AssetPixels(specs[0]))) == nil {
+		t.Fatal("wrong bag record accepted")
 	}
 }

@@ -8,7 +8,25 @@ import (
 	"runtime"
 	"testing"
 	"testing/fstest"
+	"time"
 )
+
+// waitWorldHDAsset drives asset frames until im is installed (floors are
+// prefetched when the set is bound).
+func waitWorldHDAsset(t *testing.T, b *RenderSprites, im *Image) []uint16 {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		b.BeginWorldHDAssets()
+		if pix := b.WorldHDAsset(im); pix != nil {
+			return pix
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("floor asset not installed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
 
 func TestWorldFloorRuntimeBindings(t *testing.T) {
 	root := os.Getenv("NOX_WORLDHD_TEST_PROJECT")
@@ -22,33 +40,46 @@ func TestWorldFloorRuntimeBindings(t *testing.T) {
 	}
 	defer b.Free()
 	assets := os.DirFS(filepath.Join(root, "assets/work/group4-runtime-20260914-001"))
-	if e := b.SetWorldFloors(assets); e != nil {
+	if e := b.SetWorldHDAssets(assets); e != nil {
 		t.Fatal(e)
 	}
 	im := b.ImageByIndex(9166)
-	if b.WorldFloorCount() != 9 || b.WorldFloor(im) == nil || b.WorldFloor(&Image{bag: im.bag}) != nil {
+	if b.WorldHDAssetCount() != 9 || len(waitWorldHDAsset(t, b, im)) != 92*92 || b.WorldHDAsset(&Image{bag: im.bag}) != nil {
 		t.Fatal("wrong bag-instance binding")
 	}
-	if e := b.SetWorldFloors(fstest.MapFS{}); e == nil || b.WorldFloor(im) != nil || b.WorldFloorCount() != 0 {
+	waitIdle(t, b.worldHD)
+	for id := 9160; id <= 9168; id++ {
+		if b.worldHD.cache.byImage[b.ImageByIndex(id)] == nil {
+			t.Fatalf("floor %d was not prefetched", id)
+		}
+		// Requests read the record without caching img.raw, which would
+		// otherwise disable an image's override data.
+		if b.ImageByIndex(id).raw != nil {
+			t.Fatalf("floor %d request cached the raw record", id)
+		}
+	}
+	if e := b.SetWorldHDAssets(fstest.MapFS{}); e == nil || b.WorldHDAsset(im) != nil || b.WorldHDAssetCount() != 0 {
 		t.Fatal("failed reload retained stale HD")
 	}
-	if e := b.SetWorldFloors(assets); e != nil {
+	if e := b.SetWorldHDAssets(assets); e != nil {
 		t.Fatal(e)
 	}
+	waitWorldHDAsset(t, b, im)
 	// Load/unload leak check, not the planned in-game 20 scene round trips.
 	runtime.GC()
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 	for i := 0; i < 20; i++ {
-		if e := b.SetWorldFloors(nil); e != nil {
+		if e := b.SetWorldHDAssets(nil); e != nil {
 			t.Fatal(e)
 		}
-		if b.WorldFloor(im) != nil {
+		if b.WorldHDAsset(im) != nil {
 			t.Fatal("unload retained binding")
 		}
-		if e := b.SetWorldFloors(assets); e != nil {
+		if e := b.SetWorldHDAssets(assets); e != nil {
 			t.Fatal(e)
 		}
+		waitWorldHDAsset(t, b, im)
 	}
 	runtime.GC()
 	runtime.ReadMemStats(&after)

@@ -2,18 +2,15 @@ package worldhd
 
 import (
 	"encoding/binary"
-	"image/color"
 	"testing"
 )
 
 func TestTilesRingAndEdges(t *testing.T) {
-	s, src, files := fixture(t)
-	set, e := LoadFloors(files, []FloorSpec{s}, func(int) (FloorSource, error) { return src, nil })
-	if e != nil {
-		t.Fatal(e)
+	f := fixtureSamples(t)
+	f[41*92+41] = 0x6543
+	if ring := NewTiles(64, 64); ring.Base(0, make([]byte, 2116), f[1:]) || ring.Ready() {
+		t.Fatal("short HD sample buffer accepted")
 	}
-	f := set.Lookup(s.ID, 0, s.SourceSHA256)
-	f.pixels.SetNRGBA(41, 41, color.NRGBA{R: 200, G: 128, B: 64, A: 255})
 	raw := make([]byte, 2116)
 	for i := 0; i < len(raw); i += 2 {
 		binary.LittleEndian.PutUint16(raw[i:], 0x1234)

@@ -487,7 +487,7 @@ func (c *Client) nox_xxx_tileInitBuf_430DB0(width, height int) {
 	sz := c.tiles.dword_5d4594_3798804 * (2 * common.GridStep) * c.tiles.dword_5d4594_3798816
 	c.tiles.noxTileBuf, c.tiles.noxTileBufFree = alloc.Make([]uint16{}, sz/2)
 	c.tiles.hd = nil
-	if c.r.Bag.WorldFloorCount() != 0 {
+	if c.r.Bag.WorldHDAssetCount() != 0 {
 		c.tiles.hd = worldhd.NewTiles(c.tiles.dword_5d4594_3798804/2, c.tiles.dword_5d4594_3798808)
 	}
 	legacy.SetWorldHDTiles(c.tiles.hd != nil)
