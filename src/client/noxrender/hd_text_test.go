@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/noxworld-dev/opennox-lib/noxfont"
 	"github.com/noxworld-dev/opennox-lib/noximage"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
@@ -171,5 +172,79 @@ func TestHDTextMeasurementAndDisabled(t *testing.T) {
 	}
 	if plain.pix.Pix[2] != 0x7fff || plain.hd.pix != nil {
 		t.Fatal("default-off logical text or HD allocation changed")
+	}
+}
+
+// hdGlyphLegacy hides the RGBA64 methods, so DrawMask takes the generic
+// At/Set path that hdGlyph used before.
+type hdGlyphLegacy struct{ p *hdGlyphPhase }
+
+func (l hdGlyphLegacy) ColorModel() color.Model     { return l.p.ColorModel() }
+func (l hdGlyphLegacy) Bounds() image.Rectangle     { return l.p.Bounds() }
+func (l hdGlyphLegacy) At(x, y int) color.Color     { return l.p.At(x, y) }
+func (l hdGlyphLegacy) Set(x, y int, c color.Color) { l.p.Set(x, y, c) }
+
+// Catches any output change from the allocation-free path: every 16-bit
+// destination value under 1-bit and 8-bit masks, opaque and translucent text.
+func TestHDGlyphRGBA64MatchesGenericDrawMask(t *testing.T) {
+	const n, scale = 256, 3
+	phase := image.Pt(2, 1)
+	bm := &noxfont.Bitmap{Pix: make([]byte, n*n/8), Stride: n / 8, Rect: image.Rect(3, 5, 3+n, 5+n)}
+	for i := range bm.Pix {
+		bm.Pix[i] = byte(i*37 + i>>5)
+	}
+	alpha := image.NewAlpha(image.Rect(0, 0, n, n))
+	for i := range alpha.Pix {
+		alpha.Pix[i] = byte(i + i>>8)
+	}
+	newDst := func() *noximage.Image16 {
+		pix := noximage.NewImage16(image.Rect(0, 0, n*scale, n*scale))
+		for y := 0; y < n; y++ {
+			for x := 0; x < n; x++ {
+				pix.Pix[pix.PixOffset(x*scale+phase.X, y*scale+phase.Y)] = uint16(y*n + x)
+			}
+		}
+		return pix
+	}
+	srcs := []color.Color{color.White, color.NRGBA{R: 200, G: 100, B: 50, A: 255}, color.NRGBA{R: 10, G: 220, B: 130, A: 90}}
+	for si, src := range srcs {
+		for _, m := range []struct {
+			name     string
+			old, cur image.Image
+			maskp    image.Point
+		}{
+			{"bitmap", bm, &hdGlyphBitmap{bm}, bm.Rect.Min},
+			{"alpha", alpha, alpha, alpha.Rect.Min},
+		} {
+			want, got := newDst(), newDst()
+			dr := image.Rect(0, 0, n, n)
+			oldView := &hdGlyphPhase{pix: want, clip: dr, scale: scale, phase: phase}
+			newView := &hdGlyphPhase{pix: got, clip: dr, scale: scale, phase: phase}
+			draw.DrawMask(hdGlyphLegacy{oldView}, dr, image.NewUniform(src), image.Point{}, m.old, m.maskp, draw.Over)
+			draw.DrawMask(newView, dr, image.NewUniform(src), image.Point{}, m.cur, m.maskp, draw.Over)
+			if !reflect.DeepEqual(want.Pix, got.Pix) {
+				t.Fatalf("src %d mask %s: output differs from generic DrawMask", si, m.name)
+			}
+		}
+	}
+}
+
+// Catches a regression to per-pixel color boxing in HD bitmap-font text.
+func TestHDGlyphBitmapAllocations(t *testing.T) {
+	r := hdTestRender(16, 16)
+	r.p.SetTextColor(color.White)
+	r.text.Src = image.NewUniform(color.White)
+	if !r.BeginHDFrame(noximage.NewImage16(image.Rect(0, 0, 48, 48))) {
+		t.Fatal("start failed")
+	}
+	bm := &noxfont.Bitmap{Pix: make([]byte, 2*16), Stride: 2, Rect: image.Rect(0, 0, 16, 16)}
+	for i := range bm.Pix {
+		bm.Pix[i] = 0xff
+	}
+	allocs := testing.AllocsPerRun(20, func() {
+		r.hdGlyph(bm.Rect, bm, image.Point{})
+	})
+	if allocs > 2 {
+		t.Fatalf("hdGlyph allocs=%v for 16x16 glyph at 3x", allocs)
 	}
 }

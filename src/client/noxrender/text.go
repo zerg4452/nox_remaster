@@ -248,11 +248,15 @@ func (r *NoxRender) DrawStringHL(font font.Face, str string, pos image.Point) in
 	return r.drawStringLine(font, str, pos)
 }
 
+// lineBreakRemover is shared because building a Replacer on every string draw
+// was the largest per-frame Go allocation; Replacer is safe for concurrent use.
+var lineBreakRemover = strings.NewReplacer(
+	"\n", "",
+	"\r", "",
+)
+
 func (r *NoxRender) drawStringLine(font font.Face, str string, pos image.Point) int {
-	str = strings.NewReplacer(
-		"\n", "",
-		"\r", "",
-	).Replace(str)
+	str = lineBreakRemover.Replace(str)
 	return r.drawString(font, str, pos)
 }
 
