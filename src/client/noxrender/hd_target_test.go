@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/noxworld-dev/opennox-lib/noximage"
+
+	"github.com/noxworld-dev/opennox/v1/legacy/common/alloc"
 )
 
 func hdTestImage(typ, width int, stream ...byte) Image16 {
@@ -195,4 +197,25 @@ func TestHDImageRejectsUnsupportedState(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Catches HD targets left on the Go heap, leaked when their size changes, or
+// reallocated when the size is unchanged.
+func TestResizeHDTargetCHeap(t *testing.T) {
+	count0, bytes0 := alloc.Stats()
+	a := resizeHDTarget(nil, image.Rect(0, 0, 6, 3))
+	if count, bytes := alloc.Stats(); count != count0+1 || bytes != bytes0+6*3*2 {
+		t.Fatalf("first target not on the C heap: count %d->%d bytes %d->%d", count0, count, bytes0, bytes)
+	}
+	if b := resizeHDTarget(a, a.Rect); b != a {
+		t.Fatal("same-size target reallocated")
+	}
+	b := resizeHDTarget(a, image.Rect(0, 0, 4, 2))
+	if count, bytes := alloc.Stats(); count != count0+1 || bytes != bytes0+4*2*2 {
+		t.Fatalf("old target not freed: count %d->%d bytes %d->%d", count0, count, bytes0, bytes)
+	}
+	if b.Stride != 4 || len(b.Pix) != 8 || b.Pix[7] != 0 {
+		t.Fatalf("geometry stride=%d len=%d", b.Stride, len(b.Pix))
+	}
+	alloc.FreeSlice(b.Pix)
 }

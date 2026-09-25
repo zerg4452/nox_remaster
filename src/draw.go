@@ -51,6 +51,7 @@ type nox_arr_84EB20_t struct {
 type clientTileData struct {
 	hd             *worldhd.Tiles
 	hdSpare        *worldhd.Tiles // kept across floor buffer recreation for reuse
+	hdSpareFree    func()         // frees hdSpare's C storage
 	noxTilesGpx    int
 	noxTilesGpy    int
 	noxTileBuf     []uint16
@@ -494,8 +495,11 @@ func (c *Client) nox_xxx_tileInitBuf_430DB0(width, height int) {
 			s.Reset()
 			c.tiles.hd = s
 		} else {
-			c.tiles.hd = worldhd.NewTiles(w, h)
+			c.freeHDTiles()
+			c.tiles.hd = c.newHDTiles(w, h)
 		}
+	} else {
+		c.freeHDTiles()
 	}
 	c.tiles.hdSpare = c.tiles.hd
 	legacy.SetWorldHDTiles(c.tiles.hd != nil)
@@ -508,6 +512,30 @@ func (c *Client) nox_xxx_tileInitBuf_430DB0(width, height int) {
 		c.tiles.lightsOutBuf[1] = 255
 		c.tiles.lightsOutBuf[2] = 255
 	}
+}
+
+// newHDTiles allocates the world HD tile ring on the C heap, so the ring does
+// not raise the Go GC target. The storage is freed by freeHDTiles.
+func (c *Client) newHDTiles(w, h int) *worldhd.Tiles {
+	if w <= 0 || h <= 0 || w > 4096 || h > 4096 {
+		return nil
+	}
+	pix, freePix := alloc.Make([][4]uint16{}, w*h)
+	flags, freeFlags := alloc.Make([]bool{}, 2*w*h)
+	c.tiles.hdSpareFree = func() {
+		freePix()
+		freeFlags()
+	}
+	return worldhd.NewTilesIn(w, h, pix, flags)
+}
+
+// freeHDTiles releases the spare ring; the caller has already dropped c.tiles.hd.
+func (c *Client) freeHDTiles() {
+	if c.tiles.hdSpareFree != nil {
+		c.tiles.hdSpareFree()
+		c.tiles.hdSpareFree = nil
+	}
+	c.tiles.hdSpare = nil
 }
 
 func (c *Client) nox_video_freeFloorBuffer_430EC0() {

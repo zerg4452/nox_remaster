@@ -19,9 +19,7 @@ func (r *NoxRender) BeginWorldHDFrame() bool {
 		return false
 	}
 	rect := image.Rectangle{Max: r.pix.Rect.Max.Mul(2)}
-	if r.hd.worldPix == nil || r.hd.worldPix.Rect != rect {
-		r.hd.worldPix = noximage.NewImage16(rect)
-	}
+	r.hd.worldPix = resizeHDTarget(r.hd.worldPix, rect)
 	r.hd.pix = r.hd.worldPix
 	r.hd.scale = 2
 	for y := 0; y < r.pix.Rect.Dy(); y++ {

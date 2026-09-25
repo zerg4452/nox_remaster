@@ -16,7 +16,21 @@ func NewTiles(w, h int) *Tiles {
 	if w <= 0 || h <= 0 || w > 4096 || h > 4096 {
 		return nil
 	}
-	return &Tiles{Width: w, Height: h, pix: make([][4]uint16, w*h), detail: make([]bool, w*h), valid: make([]bool, w*h), ok: true}
+	return NewTilesIn(w, h, make([][4]uint16, w*h), make([]bool, 2*w*h))
+}
+
+// NewTilesIn builds a ring on caller-owned zeroed storage (the client uses the
+// C heap so the ring does not raise the Go GC target): pix holds w*h cells and
+// flags 2*w*h entries. It returns nil for an invalid size or short storage.
+func NewTilesIn(w, h int, pix [][4]uint16, flags []bool) *Tiles {
+	if w <= 0 || h <= 0 || w > 4096 || h > 4096 {
+		return nil
+	}
+	n := w * h
+	if len(pix) < n || len(flags) < 2*n {
+		return nil
+	}
+	return &Tiles{Width: w, Height: h, pix: pix[:n:n], detail: flags[:n:n], valid: flags[n : 2*n : 2*n], ok: true}
 }
 func (t *Tiles) Invalidate() {
 	if t != nil {

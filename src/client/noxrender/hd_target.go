@@ -5,6 +5,8 @@ import (
 	"unsafe"
 
 	"github.com/noxworld-dev/opennox-lib/noximage"
+
+	"github.com/noxworld-dev/opennox/v1/legacy/common/alloc"
 )
 
 type hdTarget struct {
@@ -23,7 +25,25 @@ type hdTarget struct {
 	spriteStride int
 	// menuPix and worldPix keep one target per mode so switching between the
 	// menu and the world (every map load) reuses them instead of reallocating.
+	// Both live on the C heap (see resizeHDTarget).
 	menuPix, worldPix *noximage.Image16
+}
+
+// resizeHDTarget returns old when it already has rect, otherwise frees it and
+// allocates a zeroed image on the C heap. Long-lived HD targets stay out of the
+// Go heap so they do not raise the Go GC target.
+func resizeHDTarget(old *noximage.Image16, rect image.Rectangle) *noximage.Image16 {
+	if old != nil && old.Rect == rect {
+		return old
+	}
+	if old != nil && len(old.Pix) != 0 {
+		alloc.FreeSlice(old.Pix)
+	}
+	if rect.Empty() {
+		return noximage.NewImage16(rect)
+	}
+	pix, _ := alloc.Make([]uint16{}, rect.Dx()*rect.Dy())
+	return &noximage.Image16{Pix: pix, Stride: rect.Dx(), Rect: rect}
 }
 
 // BeginHDFrame starts an optional operation target without replacing the logical
@@ -47,9 +67,7 @@ func (r *NoxRender) BeginHDFrame(background *noximage.Image16) bool {
 			return false
 		}
 	}
-	if r.hd.menuPix == nil || r.hd.menuPix.Rect != background.Rect {
-		r.hd.menuPix = noximage.NewImage16(background.Rect)
-	}
+	r.hd.menuPix = resizeHDTarget(r.hd.menuPix, background.Rect)
 	r.hd.pix = r.hd.menuPix
 	for y := 0; y < background.Rect.Dy(); y++ {
 		copy(r.hd.pix.Row(y), background.Row(y))

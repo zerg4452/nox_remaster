@@ -13,6 +13,7 @@ import (
 
 	"github.com/noxworld-dev/opennox-lib/noximage"
 	"github.com/noxworld-dev/opennox/v1/client/noxrender"
+	"github.com/noxworld-dev/opennox/v1/legacy/common/alloc"
 )
 
 func loadMenuHDSprites(backgroundPath string) (map[string]*image.NRGBA, error) {
@@ -95,7 +96,10 @@ func loadMenuHDBackground(path string) (*noximage.Image16, error) {
 			}
 		}
 	}
-	out := noximage.NewImage16(im.Bounds())
+	// Loaded once and kept for the process lifetime; on the C heap so it does
+	// not raise the Go GC target.
+	pix, _ := alloc.Make([]uint16{}, 1920*1440)
+	out := noximage.NewImage16WithData(pix, image.Pt(1920, 1440))
 	draw.Draw(out, out.Rect, im, im.Bounds().Min, draw.Src)
 	return out, nil
 }

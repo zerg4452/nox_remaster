@@ -7,6 +7,8 @@ import (
 	"github.com/noxworld-dev/opennox-lib/client/seat"
 	"github.com/noxworld-dev/opennox-lib/log"
 	"github.com/noxworld-dev/opennox-lib/noximage"
+
+	"github.com/noxworld-dev/opennox/v1/legacy/common/alloc"
 )
 
 var (
@@ -112,13 +114,22 @@ func (r *Renderer) present(img *noximage.Image16) {
 
 // resizeImage16 reuses the backing array of old when it is large enough, so
 // switching between HD world frames and logical-size loading frames does not
-// allocate a new buffer on every map load.
+// allocate a new buffer on every map load. Buffers live on the C heap so the
+// full-size present buffers do not raise the Go GC target; the one being
+// replaced is freed (Surface.Update copies synchronously).
 func resizeImage16(old *noximage.Image16, rect image.Rectangle) *noximage.Image16 {
 	n := rect.Dx() * rect.Dy()
-	if old == nil || cap(old.Pix) < n {
+	if old != nil && cap(old.Pix) >= n {
+		return &noximage.Image16{Pix: old.Pix[:n], Stride: rect.Dx(), Rect: rect}
+	}
+	if old != nil && cap(old.Pix) != 0 {
+		alloc.FreeSlice(old.Pix)
+	}
+	if n == 0 {
 		return noximage.NewImage16(rect)
 	}
-	return &noximage.Image16{Pix: old.Pix[:n], Stride: rect.Dx(), Rect: rect}
+	pix, _ := alloc.Make([]uint16{}, n)
+	return &noximage.Image16{Pix: pix, Stride: rect.Dx(), Rect: rect}
 }
 
 func (r *Renderer) SetStretched(stretch bool) {
