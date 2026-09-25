@@ -89,7 +89,7 @@ func (r *Renderer) present(img *noximage.Image16) {
 	}
 	if img != nil {
 		if r.buf == nil || r.buf.Rect != img.Rect {
-			r.buf = noximage.NewImage16(img.Rect)
+			r.buf = resizeImage16(r.buf, img.Rect)
 		}
 		copy(r.buf.Pix, img.Pix)
 		if bsz := r.backbuf.Size(); sz != bsz || r.filtering != r.backbufFilt {
@@ -108,6 +108,17 @@ func (r *Renderer) present(img *noximage.Image16) {
 	r.backbuf.Draw(view)
 	r.sc.Present()
 	atomic.AddUint32(&r.ticks, 1)
+}
+
+// resizeImage16 reuses the backing array of old when it is large enough, so
+// switching between HD world frames and logical-size loading frames does not
+// allocate a new buffer on every map load.
+func resizeImage16(old *noximage.Image16, rect image.Rectangle) *noximage.Image16 {
+	n := rect.Dx() * rect.Dy()
+	if old == nil || cap(old.Pix) < n {
+		return noximage.NewImage16(rect)
+	}
+	return &noximage.Image16{Pix: old.Pix[:n], Stride: rect.Dx(), Rect: rect}
 }
 
 func (r *Renderer) SetStretched(stretch bool) {
