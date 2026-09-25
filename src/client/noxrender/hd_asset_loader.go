@@ -37,7 +37,7 @@ type hdAssetResult struct {
 }
 
 type hdLoaderStats struct {
-	Requested, Dropped, Failed int64
+	Requested, Dropped, Failed, Prefetched int64
 }
 
 type hdAssetLoader struct {
@@ -56,6 +56,11 @@ type hdAssetLoader struct {
 	inflight                int
 	rejected                map[*Image]struct{}
 	stats                   hdLoaderStats
+
+	// prefetch holds wanted images (4.3-001a) that BeginFrame feeds to Request
+	// as the job and byte limits allow, so a large prefetch is never dropped.
+	prefetch []*Image
+	queued   map[*Image]struct{}
 }
 
 func newHDAssetLoader(root fs.FS, specs map[int]worldhd.FloorSpec, cache *hdAssetCache) *hdAssetLoader {
@@ -65,6 +70,7 @@ func newHDAssetLoader(root fs.FS, specs map[int]worldhd.FloorSpec, cache *hdAsse
 		results:    make(chan hdAssetResult, hdLoaderQueue),
 		maxPending: hdLoaderQueue, maxInflight: hdLoaderInflight,
 		pending: make(map[*Image]int), rejected: make(map[*Image]struct{}),
+		queued: make(map[*Image]struct{}),
 	}
 	for i := 0; i < hdLoaderWorkers; i++ {
 		l.wg.Add(1)
@@ -118,7 +124,67 @@ func (l *hdAssetLoader) Request(img *Image) {
 	}
 }
 
-// BeginFrame starts a cache frame and installs finished assets. Render thread only.
+// idle reports whether img needs no loading work: no replacement, already
+// installed, converting or rejected.
+func (l *hdAssetLoader) idle(img *Image) bool {
+	if _, ok := l.specs[img.bag.Index]; !ok || l.cache.byImage[img] != nil {
+		return true
+	}
+	if _, busy := l.pending[img]; busy {
+		return true
+	}
+	_, bad := l.rejected[img]
+	return bad
+}
+
+// Prefetch queues images to load ahead of drawing, in order. Images without a
+// replacement or already loaded, converting, rejected or queued are skipped.
+// Render thread only.
+func (l *hdAssetLoader) Prefetch(imgs []*Image) {
+	if l == nil || l.closed {
+		return
+	}
+	for _, img := range imgs {
+		if img == nil || img.bag == nil || l.idle(img) {
+			continue
+		}
+		if _, ok := l.queued[img]; ok {
+			continue
+		}
+		l.queued[img] = struct{}{}
+		l.prefetch = append(l.prefetch, img)
+		l.stats.Prefetched++
+	}
+}
+
+// PrefetchQueued is the number of prefetched images not yet requested.
+func (l *hdAssetLoader) PrefetchQueued() int {
+	if l == nil {
+		return 0
+	}
+	return len(l.prefetch)
+}
+
+// feedPrefetch requests queued images until the next one does not fit the
+// limits. An asset larger than the byte limit can never load and is dropped.
+func (l *hdAssetLoader) feedPrefetch() {
+	n := 0
+	for ; n < len(l.prefetch); n++ {
+		img := l.prefetch[n]
+		if !l.idle(img) {
+			size := assetBytes(l.specs[img.bag.Index])
+			if size <= l.maxInflight && (len(l.pending) >= l.maxPending || l.inflight+size > l.maxInflight) {
+				break
+			}
+			l.Request(img)
+		}
+		delete(l.queued, img)
+	}
+	l.prefetch = append(l.prefetch[:0], l.prefetch[n:]...)
+}
+
+// BeginFrame starts a cache frame, installs finished assets and feeds queued
+// prefetches. Render thread only.
 func (l *hdAssetLoader) BeginFrame() {
 	if l == nil {
 		return
@@ -129,6 +195,9 @@ func (l *hdAssetLoader) BeginFrame() {
 		case r := <-l.results:
 			l.finish(r)
 		default:
+			if !l.closed {
+				l.feedPrefetch()
+			}
 			return
 		}
 	}
@@ -159,6 +228,7 @@ func (l *hdAssetLoader) Close() {
 		return
 	}
 	l.closed = true
+	l.prefetch, l.queued = nil, nil
 	close(l.jobs)
 	l.wg.Wait()
 	for len(l.results) > 0 {

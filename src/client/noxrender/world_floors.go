@@ -73,5 +73,20 @@ func (b *RenderSprites) MemoryStats() (hdBytes, hdAssets int, pixBytes, pixCount
 	return hdBytes, hdAssets, pixdataInterned.bytes, pixdataInterned.count
 }
 
+// PrefetchWorldHD queues this bag's images by record ID for loading ahead of
+// drawing (4.3-001a); IDs outside the bag or without a replacement are ignored.
+func (b *RenderSprites) PrefetchWorldHD(ids []int) {
+	if b.worldHD == nil {
+		return
+	}
+	imgs := make([]*Image, 0, len(ids))
+	for _, id := range ids {
+		if id >= 0 && id < len(b.byIndex) {
+			imgs = append(imgs, b.byIndex[id])
+		}
+	}
+	b.worldHD.Prefetch(imgs)
+}
+
 // BeginWorldHDAssets starts an asset frame and installs finished conversions.
 func (b *RenderSprites) BeginWorldHDAssets() { b.worldHD.BeginFrame() }

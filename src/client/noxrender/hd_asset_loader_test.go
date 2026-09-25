@@ -178,3 +178,74 @@ func TestWorldHDAssetLoaderStress(t *testing.T) {
 		t.Fatalf("leak after stress: allocs %d frees %d", ca.allocs, ca.frees)
 	}
 }
+
+// Prefetch (4.3-001a): far more images than the job limit all load without a
+// drop and within the limits; skipped images never enter the queue,
+// an asset that can never fit is dropped, and Close clears the queue.
+func TestWorldHDAssetLoaderPrefetch(t *testing.T) {
+	raw, data, spec := loaderFixture(t)
+	specs := map[int]worldhd.FloorSpec{}
+	var images []*Image
+	for id := 0; id < 200; id++ {
+		specs[id] = spec(id, "a.png")
+		images = append(images, testImage(id, raw))
+	}
+	bad := spec(200, "a.png")
+	bad.PNGSHA256 = [32]byte{}
+	specs[200] = bad
+	rejected, none := testImage(200, raw), testImage(201, raw)
+	ca := &countingAlloc{}
+	l := newHDAssetLoader(fstest.MapFS{"a.png": {Data: data}}, specs, newHDAssetCache(hdAssetBudget))
+	l.alloc = ca.alloc
+	l.maxPending = 5
+
+	l.Request(images[0])
+	l.Request(rejected)
+	waitIdle(t, l)
+	if l.cache.Lookup(images[0]) == nil || l.stats.Failed != 1 {
+		t.Fatal("setup failed")
+	}
+	l.Prefetch(append(append([]*Image{none, rejected, nil}, images...), images[1:50]...))
+	if l.PrefetchQueued() != 199 || l.stats.Prefetched != 199 {
+		t.Fatalf("queued %d prefetched %d, want 199 (installed, rejected, unknown and duplicates skipped)", l.PrefetchQueued(), l.stats.Prefetched)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for l.PrefetchQueued() != 0 || len(l.pending) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("prefetch did not finish")
+		}
+		l.BeginFrame()
+		if len(l.pending) > l.maxPending || l.inflight > l.maxInflight {
+			t.Fatal("limit exceeded")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for i, im := range images {
+		if l.cache.Lookup(im) == nil {
+			t.Fatalf("image %d not installed", i)
+		}
+	}
+	if l.stats.Dropped != 0 || l.stats.Requested != 201 || len(l.queued) != 0 {
+		t.Fatalf("stats %+v queued %d", l.stats, len(l.queued))
+	}
+
+	// An asset larger than the byte limit is dropped instead of blocking the queue.
+	l.cache.Clear()
+	l.maxInflight = assetBytes(specs[0]) - 1
+	l.Prefetch(images[:3])
+	l.BeginFrame()
+	if l.PrefetchQueued() != 0 || l.stats.Dropped != 3 || len(l.pending) != 0 {
+		t.Fatalf("oversized: queued %d stats %+v", l.PrefetchQueued(), l.stats)
+	}
+	l.maxInflight = hdLoaderInflight
+
+	// Close drops the queue and frees every buffer; later prefetches are ignored.
+	l.Prefetch(images)
+	l.BeginFrame()
+	l.Close()
+	l.Prefetch(images)
+	l.BeginFrame()
+	if l.PrefetchQueued() != 0 || !ca.balanced() || l.cache.bytes != 0 || len(l.pending) != 0 {
+		t.Fatalf("close: queued %d allocs %d frees %d cache %d", l.PrefetchQueued(), ca.allocs, ca.frees, l.cache.bytes)
+	}
+}
