@@ -137,13 +137,14 @@ func (l *hdAssetLoader) idle(img *Image) bool {
 	return bad
 }
 
-// Prefetch queues images to load ahead of drawing, in order. Images without a
-// replacement or already loaded, converting, rejected or queued are skipped.
-// Render thread only.
-func (l *hdAssetLoader) Prefetch(imgs []*Image) {
+// Prefetch queues images to load ahead of drawing, in order, and returns how
+// many were queued. Images without a replacement or already loaded,
+// converting, rejected or queued are skipped. Render thread only.
+func (l *hdAssetLoader) Prefetch(imgs []*Image) int {
 	if l == nil || l.closed {
-		return
+		return 0
 	}
+	added := 0
 	for _, img := range imgs {
 		if img == nil || img.bag == nil || l.idle(img) {
 			continue
@@ -154,8 +155,10 @@ func (l *hdAssetLoader) Prefetch(imgs []*Image) {
 		l.queued[img] = struct{}{}
 		l.prefetch = append(l.prefetch, img)
 		l.stats.Prefetched++
+		added++
 	}
 	l.feedPrefetch() // start converting now, e.g. during a map load
+	return added
 }
 
 // PrefetchQueued is the number of prefetched images not yet requested.

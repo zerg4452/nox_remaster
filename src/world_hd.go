@@ -10,6 +10,7 @@ import (
 	"github.com/noxworld-dev/opennox-lib/noximage"
 	"github.com/noxworld-dev/opennox/v1/client/noxrender"
 	"github.com/noxworld-dev/opennox/v1/legacy"
+	"github.com/noxworld-dev/opennox/v1/server"
 )
 
 var worldHD struct {
@@ -78,8 +79,8 @@ func init() {
 	}
 }
 
-// prefetchWorldHDMap requests the HD floors and edges of the loaded map while
-// it is still loading (design D6, 4.3-001b).
+// prefetchWorldHDMap requests the HD floors, edges (4.3-001b) and walls
+// (4.3-001d) of the loaded map while it is still loading (design D6).
 func prefetchWorldHDMap() {
 	c := noxClient
 	if c == nil || c.r.Bag.WorldHDAssetCount() == 0 {
@@ -90,8 +91,40 @@ func prefetchWorldHDMap() {
 	for i, p := range imgs {
 		handles[i] = noxrender.ImageHandle(p)
 	}
-	c.r.Bag.PrefetchWorldHD(handles)
-	noxrender.Log.Printf("world-hd prefetch map tiles=%d queued=%d", len(handles), c.r.Bag.WorldHDPrefetchQueued())
+	var walls []noxrender.ImageHandle
+	if noxServer != nil {
+		walls = wallSpriteHandles(noxServer.Walls.All(), noxServer.Walls.DefByInd)
+	}
+	added := c.r.Bag.PrefetchWorldHD(append(handles, walls...))
+	noxrender.Log.Printf("world-hd prefetch map tiles=%d walls=%d requested=%d waiting=%d", len(handles), len(walls), added, c.r.Bag.WorldHDPrefetchQueued())
+}
+
+// wallSpriteHandles returns every sprite (all directions, variations and
+// states) of the wall definitions the walls use, each definition once.
+func wallSpriteHandles(walls []*server.Wall, def func(int) *server.WallDef) []noxrender.ImageHandle {
+	var out []noxrender.ImageHandle
+	seen := make(map[int]bool)
+	for _, wl := range walls {
+		i := int(wl.Tile1)
+		if seen[i] {
+			continue
+		}
+		seen[i] = true
+		d := def(i)
+		if d == nil {
+			continue
+		}
+		for _, states := range d.Sprite8432 {
+			for _, dirs := range states {
+				for _, p := range dirs {
+					if p != nil {
+						out = append(out, noxrender.ImageHandle(p))
+					}
+				}
+			}
+		}
+	}
+	return out
 }
 
 func (c *Client) beginWorldHD() {

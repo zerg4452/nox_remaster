@@ -58,10 +58,11 @@ func (b *RenderSprites) MemoryStats() (hdBytes, hdAssets int, pixBytes, pixCount
 }
 
 // PrefetchWorldHD queues this bag's images for loading ahead of drawing
-// (4.3-001); handles of other images or without a replacement are ignored.
-func (b *RenderSprites) PrefetchWorldHD(handles []ImageHandle) {
+// (4.3-001) and returns how many were queued; handles of other images or
+// without a replacement are ignored.
+func (b *RenderSprites) PrefetchWorldHD(handles []ImageHandle) int {
 	if b.worldHD == nil {
-		return
+		return 0
 	}
 	imgs := make([]*Image, 0, len(handles))
 	for _, h := range handles {
@@ -69,7 +70,7 @@ func (b *RenderSprites) PrefetchWorldHD(handles []ImageHandle) {
 			imgs = append(imgs, im)
 		}
 	}
-	b.worldHD.Prefetch(imgs)
+	return b.worldHD.Prefetch(imgs)
 }
 
 // WorldHDPrefetchQueued is the number of prefetched images not yet requested.

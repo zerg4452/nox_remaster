@@ -206,7 +206,9 @@ func TestWorldHDAssetLoaderPrefetch(t *testing.T) {
 	if l.cache.Lookup(images[0]) == nil || l.stats.Failed != 1 {
 		t.Fatal("setup failed")
 	}
-	l.Prefetch(append(append([]*Image{none, rejected, nil}, images...), images[1:50]...))
+	if n := l.Prefetch(append(append([]*Image{none, rejected, nil}, images...), images[1:50]...)); n != 199 {
+		t.Fatalf("Prefetch reported %d queued, want 199", n)
+	}
 	if l.stats.Prefetched != 199 || len(l.pending) != l.maxPending || l.PrefetchQueued() != 199-l.maxPending {
 		t.Fatalf("prefetched %d pending %d queued %d, want 199 (installed, rejected, unknown and duplicates skipped) fed up to the job limit", l.stats.Prefetched, len(l.pending), l.PrefetchQueued())
 	}
@@ -263,13 +265,13 @@ func TestWorldHDPrefetchHandles(t *testing.T) {
 	specs := map[int]worldhd.FloorSpec{0: spec(0, "a.png"), 1: spec(1, "a.png")}
 	b.worldHD = newHDAssetLoader(fstest.MapFS{"a.png": {Data: data}}, specs, newHDAssetCache(hdAssetBudget))
 	defer b.worldHD.Close()
-	b.PrefetchWorldHD([]ImageHandle{nil, hu, hf, h0, h1, h0})
-	if b.worldHD.stats.Prefetched != 2 || b.worldHD.pending[own0] == 0 || b.worldHD.pending[own1] == 0 || b.worldHD.pending[foreign] != 0 {
+	n := b.PrefetchWorldHD([]ImageHandle{nil, hu, hf, h0, h1, h0})
+	if n != 2 || b.worldHD.stats.Prefetched != 2 || b.worldHD.pending[own0] == 0 || b.worldHD.pending[own1] == 0 || b.worldHD.pending[foreign] != 0 {
 		t.Fatalf("prefetched %d pending %v", b.worldHD.stats.Prefetched, b.worldHD.pending)
 	}
 	var none RenderSprites
-	none.PrefetchWorldHD([]ImageHandle{h0}) // no asset set bound
-	if none.WorldHDPrefetchQueued() != 0 {
+	// No asset set bound.
+	if none.PrefetchWorldHD([]ImageHandle{h0}) != 0 || none.WorldHDPrefetchQueued() != 0 {
 		t.Fatal("unbound bag queued work")
 	}
 }
