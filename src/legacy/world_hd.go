@@ -33,6 +33,27 @@ func nox_world_hd_tile(x, y C.int, base, edge unsafe.Pointer) {
 	}
 }
 
+// WorldHDWallBegin and WorldHDWallSpan receive the lit opaque wall image and
+// the image-local position of each lit span (4.3-001c).
+var (
+	WorldHDWallBegin func(unsafe.Pointer)
+	WorldHDWallSpan  func(x, y int)
+)
+
+//export nox_world_hd_wall_begin
+func nox_world_hd_wall_begin(img unsafe.Pointer) {
+	if WorldHDWallBegin != nil {
+		WorldHDWallBegin(img)
+	}
+}
+
+//export nox_world_hd_wall_span
+func nox_world_hd_wall_span(x, y C.int) {
+	if WorldHDWallSpan != nil {
+		WorldHDWallSpan(int(x), int(y))
+	}
+}
+
 //export nox_world_hd_unsupported
 func nox_world_hd_unsupported(kind C.int) {
 	if WorldHDUnsupported != nil {

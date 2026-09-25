@@ -23,6 +23,12 @@ type hdTarget struct {
 	// world frame (4.2-M6), spriteStride its row length in samples.
 	sprite       []uint16
 	spriteStride int
+	// wall is the installed asset of the lit opaque wall being drawn
+	// (4.3-001c); wallLocal is the image-local position of the next span.
+	wall       []uint16
+	wallStride int
+	wallLocal  image.Point
+	wallSpan   bool
 	// menuPix and worldPix keep one target per mode so switching between the
 	// menu and the world (every map load) reuses them instead of reallocating.
 	// Both live on the C heap (see resizeHDTarget).

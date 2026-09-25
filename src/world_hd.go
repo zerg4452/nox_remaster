@@ -22,6 +22,16 @@ var worldHD struct {
 
 func init() {
 	onClientMapLoaded = prefetchWorldHDMap
+	legacy.WorldHDWallBegin = func(img unsafe.Pointer) {
+		if noxClient != nil {
+			noxClient.r.BeginWorldWall(noxrender.ImageHandle(img))
+		}
+	}
+	legacy.WorldHDWallSpan = func(x, y int) {
+		if noxClient != nil {
+			noxClient.r.WorldWallSpan(image.Pt(x, y))
+		}
+	}
 	legacy.WorldHDTileOpaque = func(index int, src []uint16) {
 		if noxClient != nil {
 			noxClient.tiles.hd.Opaque(index, src)

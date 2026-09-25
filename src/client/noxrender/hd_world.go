@@ -1,6 +1,7 @@
 package noxrender
 
 import (
+	"encoding/binary"
 	"image"
 	"unsafe"
 
@@ -15,6 +16,7 @@ func (r *NoxRender) BeginWorldHDFrame() bool {
 	r.hd.world = true
 	r.hd.detail = 0
 	r.hd.reason = ""
+	r.hd.wall, r.hd.wallSpan = nil, false
 	if r.pix == nil || r.pix.Rect.Min != (image.Point{}) || r.pix.Rect.Empty() {
 		return false
 	}
@@ -150,6 +152,89 @@ func (r *NoxRender) WorldFloorPixel(dst []uint16, samples [4]uint16, detail bool
 	if detail {
 		r.hd.detail++
 	}
+}
+
+// BeginWorldWall selects the HD asset of the lit opaque wall image h that
+// nox_xxx_edgeDraw_480EF0 is about to draw (4.3-001c). Like sprites, the asset
+// only applies when the bag record itself (no override data) is drawn.
+func (r *NoxRender) BeginWorldWall(h ImageHandle) {
+	r.hd.wall, r.hd.wallSpan = nil, false
+	if !r.hd.active || !r.hd.world {
+		return
+	}
+	im := r.Bag.AsImage(h)
+	if im == nil || im.override != nil {
+		return
+	}
+	if pix := r.Bag.WorldHDAsset(im); pix != nil {
+		if data := im.Pixdata(); len(data) >= 4 {
+			r.hd.wall, r.hd.wallStride = pix, 2*int(binary.LittleEndian.Uint32(data))
+		}
+	}
+}
+
+// WorldWallSpan announces the image-local position of the next lit wall span.
+func (r *NoxRender) WorldWallSpan(local image.Point) {
+	r.hd.wallLocal, r.hd.wallSpan = local, r.hd.wall != nil
+}
+
+// worldWallRows consumes the announced span and returns its two asset rows and
+// two HD destination rows (2*len(dst) samples each); ok=false keeps the 2x2 mirror.
+func (r *NoxRender) worldWallRows(dst []uint16) (src, out [2][]uint16, ok bool) {
+	if !r.hd.wallSpan {
+		return src, out, false
+	}
+	r.hd.wallSpan = false
+	s, stride, l, n := r.hd.wall, r.hd.wallStride, r.hd.wallLocal, len(dst)
+	if l.X < 0 || l.Y < 0 || n == 0 || 2*(l.X+n) > stride || (2*l.Y+2)*stride > len(s) {
+		return src, out, false
+	}
+	p, pok := r.worldSpanPosition(dst)
+	if !pok {
+		return src, out, false
+	}
+	for y := 0; y < 2; y++ {
+		i := (2*l.Y+y)*stride + 2*l.X
+		src[y] = s[i : i+2*n]
+		out[y] = r.hd.pix.Row(2*p.Y + y)[2*p.X : 2*p.X+2*n]
+	}
+	return src, out, true
+}
+
+// LitWallSpan is the lit opaque wall span of nox_xxx_edgeDraw_480EF0
+// (sub_480860): each pixel is scaled by a light that advances by step per
+// pixel. With an announced wall asset both density-2 rows are lit with the
+// same per-pixel light (4.3-001 D3); otherwise the span is mirrored 2x2.
+// r may be nil (no client).
+func (r *NoxRender) LitWallSpan(dst, src []uint16, light, step []uint32) {
+	var hs, hd [2][]uint16
+	asset := false
+	if r != nil {
+		hs, hd, asset = r.worldWallRows(dst)
+	}
+	for i := range dst {
+		dst[i] = litWallPixel(src[i], light)
+		if asset {
+			for y := range hd {
+				hd[y][2*i] = litWallPixel(hs[y][2*i], light)
+				hd[y][2*i+1] = litWallPixel(hs[y][2*i+1], light)
+			}
+		}
+		light[0] += step[0]
+		light[1] += step[1]
+		light[2] += step[2]
+	}
+	if r != nil && !asset {
+		r.MirrorWorldOpaque(dst)
+	}
+}
+
+func litWallPixel(v uint16, light []uint32) uint16 {
+	c := SplitColor16(v)
+	c.R = uint16((light[0] * uint32(c.R)) >> 16)
+	c.G = uint16((light[1] * uint32(c.G)) >> 16)
+	c.B = uint16((light[2] * uint32(c.B)) >> 16)
+	return c.Make16()
 }
 
 // MirrorWorldOpaque is called only after an audited opaque wall span writes.

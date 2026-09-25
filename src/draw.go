@@ -292,20 +292,11 @@ func (r *NoxRender) SetRectFullScreen() { // sub_437290
 }
 
 func sub_480860(dst, src []uint16, w int, a4p, a5p []uint32) {
-	for i := 0; i < w; i++ {
-		c := noxrender.SplitColor16(src[i])
-		c.R = uint16((a4p[0] * uint32(c.R)) >> 16)
-		c.G = uint16((a4p[1] * uint32(c.G)) >> 16)
-		c.B = uint16((a4p[2] * uint32(c.B)) >> 16)
-		dst[i] = c.Make16()
-
-		a4p[0] += a5p[0]
-		a4p[1] += a5p[1]
-		a4p[2] += a5p[2]
-	}
+	var r *noxrender.NoxRender
 	if noxClient != nil {
-		noxClient.r.MirrorWorldOpaque(dst[:w])
+		r = noxClient.r.NoxRender
 	}
+	r.LitWallSpan(dst[:w], src[:w], a4p, a5p)
 }
 
 type NoxRender struct {

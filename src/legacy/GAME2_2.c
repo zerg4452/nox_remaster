@@ -110,6 +110,8 @@ void* nox_video_tileBuf_end_3798844 = 0;
 unsigned int nox_world_hd_tiles = 0;
 extern void nox_world_hd_tile(int x, int y, void* base, void* edge);
 extern void nox_world_hd_unsupported(int kind);
+extern void nox_world_hd_wall_begin(void* img);
+extern void nox_world_hd_wall_span(int x, int y);
 extern void nox_world_hd_tile_opaque(int index, unsigned short* src, int n);
 
 //----- (00476080) --------------------------------------------------------
@@ -1754,6 +1756,7 @@ int* nox_xxx_edgeDraw_480EF0(int a1, int a2, int a3, int* a4, int* a5, int a6, i
 	if (!result) {
 		return result;
 	}
+	if (nox_world_hd_tiles) { nox_world_hd_wall_begin((void*)a1); }
 	v12 = *result;
 	v13 = result[1] - a9;
 	v43 = *result;
@@ -1890,6 +1893,7 @@ int* nox_xxx_edgeDraw_480EF0(int a1, int a2, int a3, int* a4, int* a5, int a6, i
 					v51[0] = v47 + v10 * v50[0];
 					v51[1] = v48 + v10 * v50[1];
 					v51[2] = v49 + v10 * v50[2];
+					if (nox_world_hd_tiles) { nox_world_hd_wall_span(v10, v44 + v41 - v56); }
 					sub_480860(v52, &v16[-2 * (v32 - v10)], v37, v51, v50);
 					v36 = v40;
 					v54 = 2 * v37;
@@ -1910,6 +1914,7 @@ int* nox_xxx_edgeDraw_480EF0(int a1, int a2, int a3, int* a4, int* a5, int a6, i
 						v51[0] = v47 + v50[0] * v32;
 						v51[2] = v49 + v50[2] * v32;
 						v51[1] = v48 + v50[1] * v32;
+						if (nox_world_hd_tiles) { nox_world_hd_wall_span(v32, v44 + v41 - v56); }
 						sub_480860(&v52[2 * (v32 - v10)], v16, v60, v51, v50);
 						v36 = v40;
 						v16 += 2 * v60;
