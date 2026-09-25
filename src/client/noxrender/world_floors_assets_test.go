@@ -9,10 +9,10 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+	"unsafe"
 )
 
-// waitWorldHDAsset drives asset frames until im is installed (floors are
-// prefetched when the set is bound).
+// waitWorldHDAsset drives asset frames until im is installed (a miss requests it).
 func waitWorldHDAsset(t *testing.T, b *RenderSprites, im *Image) []uint16 {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -43,9 +43,24 @@ func TestWorldFloorRuntimeBindings(t *testing.T) {
 	if e := b.SetWorldHDAssets(assets); e != nil {
 		t.Fatal(e)
 	}
+	// Binding alone loads nothing; floors are prefetched per map (4.3-001b).
+	if len(b.worldHD.pending) != 0 || b.WorldHDPrefetchQueued() != 0 || b.worldHD.cache.bytes != 0 {
+		t.Fatal("binding started loading before a map")
+	}
+	var handles []ImageHandle
+	for id := 9160; id <= 9168; id++ {
+		// Test handles; Image.C needs the engine's handle table.
+		h := ImageHandle(unsafe.Pointer(&make([]byte, 1)[0]))
+		b.byHandle[h] = b.ImageByIndex(id)
+		handles = append(handles, h)
+	}
+	b.PrefetchWorldHD(handles)
 	im := b.ImageByIndex(9166)
 	if b.WorldHDAssetCount() != 9 || len(waitWorldHDAsset(t, b, im)) != 92*92 || b.WorldHDAsset(&Image{bag: im.bag}) != nil {
 		t.Fatal("wrong bag-instance binding")
+	}
+	for b.WorldHDPrefetchQueued() != 0 {
+		b.BeginWorldHDAssets()
 	}
 	waitIdle(t, b.worldHD)
 	for id := 9160; id <= 9168; id++ {

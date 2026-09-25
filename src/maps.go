@@ -282,6 +282,10 @@ func nox_xxx_mapReadSectionSpecial_426F40(a1 unsafe.Pointer, name string, fnc un
 // onClientMapRead is an optional client diagnostic hook (memory_diag.go).
 var onClientMapRead func()
 
+// onClientMapLoaded runs after the client finished reading a map; the floor
+// grid is filled by then, also on a host where the server read it (world_hd.go).
+var onClientMapLoaded func()
+
 func nox_xxx_mapCliReadAllA(path string) error {
 	mapLog.Printf("client reading map: %q", path)
 	if onClientMapRead != nil {
@@ -319,6 +323,9 @@ func nox_xxx_mapCliReadAllA(path string) error {
 		if berr != nil {
 			return berr
 		}
+	}
+	if onClientMapLoaded != nil {
+		onClientMapLoaded()
 	}
 	return nil
 }

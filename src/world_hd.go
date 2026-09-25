@@ -21,6 +21,7 @@ var worldHD struct {
 }
 
 func init() {
+	onClientMapLoaded = prefetchWorldHDMap
 	legacy.WorldHDTileOpaque = func(index int, src []uint16) {
 		if noxClient != nil {
 			noxClient.tiles.hd.Opaque(index, src)
@@ -65,6 +66,22 @@ func init() {
 		}
 		noxClient.r.RejectWorldHD(fmt.Sprintf("legacy path %d", kind))
 	}
+}
+
+// prefetchWorldHDMap requests the HD floors and edges of the loaded map while
+// it is still loading (design D6, 4.3-001b).
+func prefetchWorldHDMap() {
+	c := noxClient
+	if c == nil || c.r.Bag.WorldHDAssetCount() == 0 {
+		return
+	}
+	imgs := legacy.WorldHDMapTileImages()
+	handles := make([]noxrender.ImageHandle, len(imgs))
+	for i, p := range imgs {
+		handles[i] = noxrender.ImageHandle(p)
+	}
+	c.r.Bag.PrefetchWorldHD(handles)
+	noxrender.Log.Printf("world-hd prefetch map tiles=%d queued=%d", len(handles), c.r.Bag.WorldHDPrefetchQueued())
 }
 
 func (c *Client) beginWorldHD() {

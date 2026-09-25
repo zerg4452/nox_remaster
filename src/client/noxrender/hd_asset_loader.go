@@ -155,6 +155,7 @@ func (l *hdAssetLoader) Prefetch(imgs []*Image) {
 		l.prefetch = append(l.prefetch, img)
 		l.stats.Prefetched++
 	}
+	l.feedPrefetch() // start converting now, e.g. during a map load
 }
 
 // PrefetchQueued is the number of prefetched images not yet requested.

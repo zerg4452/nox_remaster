@@ -6,10 +6,6 @@ import (
 	"github.com/noxworld-dev/opennox/v1/client/noxrender/worldhd"
 )
 
-// hdTilePrefetch bounds the floor/edge replacements requested as soon as the
-// asset set is bound (design D6); beyond it they load on first draw.
-const hdTilePrefetch = 64 << 20
-
 // SetWorldHDAssets replaces the world HD asset set bound to this exact bag. It
 // must run on the render thread, outside drawing. A rejected index leaves no
 // assets, and the previous set's buffers are freed first.
@@ -23,20 +19,8 @@ func (b *RenderSprites) SetWorldHDAssets(root fs.FS) error {
 	if err != nil {
 		return err
 	}
+	// Floors and edges are prefetched per map when it loads (PrefetchWorldHD).
 	b.worldHD = newHDAssetLoader(root, specs, newHDAssetCache(hdAssetBudget))
-	total := 0
-	for id, s := range specs {
-		if (s.Type == 0 || s.Type == 1) && id >= 0 && id < len(b.byIndex) {
-			total += assetBytes(s)
-		}
-	}
-	if total <= hdTilePrefetch {
-		for id, s := range specs {
-			if (s.Type == 0 || s.Type == 1) && id >= 0 && id < len(b.byIndex) {
-				b.worldHD.Request(b.byIndex[id])
-			}
-		}
-	}
 	return nil
 }
 
@@ -73,20 +57,23 @@ func (b *RenderSprites) MemoryStats() (hdBytes, hdAssets int, pixBytes, pixCount
 	return hdBytes, hdAssets, pixdataInterned.bytes, pixdataInterned.count
 }
 
-// PrefetchWorldHD queues this bag's images by record ID for loading ahead of
-// drawing (4.3-001a); IDs outside the bag or without a replacement are ignored.
-func (b *RenderSprites) PrefetchWorldHD(ids []int) {
+// PrefetchWorldHD queues this bag's images for loading ahead of drawing
+// (4.3-001); handles of other images or without a replacement are ignored.
+func (b *RenderSprites) PrefetchWorldHD(handles []ImageHandle) {
 	if b.worldHD == nil {
 		return
 	}
-	imgs := make([]*Image, 0, len(ids))
-	for _, id := range ids {
-		if id >= 0 && id < len(b.byIndex) {
-			imgs = append(imgs, b.byIndex[id])
+	imgs := make([]*Image, 0, len(handles))
+	for _, h := range handles {
+		if im := b.byHandle[h]; im != nil && im.bag != nil && im.bag.Index >= 0 && im.bag.Index < len(b.byIndex) && b.byIndex[im.bag.Index] == im {
+			imgs = append(imgs, im)
 		}
 	}
 	b.worldHD.Prefetch(imgs)
 }
+
+// WorldHDPrefetchQueued is the number of prefetched images not yet requested.
+func (b *RenderSprites) WorldHDPrefetchQueued() int { return b.worldHD.PrefetchQueued() }
 
 // BeginWorldHDAssets starts an asset frame and installs finished conversions.
 func (b *RenderSprites) BeginWorldHDAssets() { b.worldHD.BeginFrame() }

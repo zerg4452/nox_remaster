@@ -2,6 +2,7 @@ package legacy
 
 /*
 extern unsigned int nox_world_hd_tiles;
+int nox_world_hd_map_tile_images(void** out, int n);
 */
 import "C"
 import "unsafe"
@@ -37,4 +38,20 @@ func nox_world_hd_unsupported(kind C.int) {
 	if WorldHDUnsupported != nil {
 		WorldHDUnsupported(int(kind))
 	}
+}
+
+// WorldHDMapTileImages returns the floor and edge image handles of every tile
+// and edge definition used by the loaded map (4.3-001b).
+func WorldHDMapTileImages() []unsafe.Pointer {
+	n := int(C.nox_world_hd_map_tile_images(nil, 0))
+	if n <= 0 {
+		return nil
+	}
+	buf := make([]uintptr, n)
+	n = min(n, int(C.nox_world_hd_map_tile_images((*unsafe.Pointer)(unsafe.Pointer(&buf[0])), C.int(n))))
+	out := make([]unsafe.Pointer, n)
+	for i := range out {
+		out[i] = unsafe.Pointer(buf[i]) // C memory, not managed by Go
+	}
+	return out
 }

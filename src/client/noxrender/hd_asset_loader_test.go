@@ -11,6 +11,7 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+	"unsafe"
 
 	"github.com/noxworld-dev/opennox-lib/bag"
 
@@ -206,8 +207,8 @@ func TestWorldHDAssetLoaderPrefetch(t *testing.T) {
 		t.Fatal("setup failed")
 	}
 	l.Prefetch(append(append([]*Image{none, rejected, nil}, images...), images[1:50]...))
-	if l.PrefetchQueued() != 199 || l.stats.Prefetched != 199 {
-		t.Fatalf("queued %d prefetched %d, want 199 (installed, rejected, unknown and duplicates skipped)", l.PrefetchQueued(), l.stats.Prefetched)
+	if l.stats.Prefetched != 199 || len(l.pending) != l.maxPending || l.PrefetchQueued() != 199-l.maxPending {
+		t.Fatalf("prefetched %d pending %d queued %d, want 199 (installed, rejected, unknown and duplicates skipped) fed up to the job limit", l.stats.Prefetched, len(l.pending), l.PrefetchQueued())
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for l.PrefetchQueued() != 0 || len(l.pending) != 0 {
@@ -233,7 +234,6 @@ func TestWorldHDAssetLoaderPrefetch(t *testing.T) {
 	l.cache.Clear()
 	l.maxInflight = assetBytes(specs[0]) - 1
 	l.Prefetch(images[:3])
-	l.BeginFrame()
 	if l.PrefetchQueued() != 0 || l.stats.Dropped != 3 || len(l.pending) != 0 {
 		t.Fatalf("oversized: queued %d stats %+v", l.PrefetchQueued(), l.stats)
 	}
@@ -247,5 +247,29 @@ func TestWorldHDAssetLoaderPrefetch(t *testing.T) {
 	l.BeginFrame()
 	if l.PrefetchQueued() != 0 || !ca.balanced() || l.cache.bytes != 0 || len(l.pending) != 0 {
 		t.Fatalf("close: queued %d allocs %d frees %d cache %d", l.PrefetchQueued(), ca.allocs, ca.frees, l.cache.bytes)
+	}
+}
+
+// PrefetchWorldHD (4.3-001b) only queues images owned by this bag that have a
+// replacement; nil, unknown and foreign handles are ignored.
+func TestWorldHDPrefetchHandles(t *testing.T) {
+	raw, data, spec := loaderFixture(t)
+	var b RenderSprites
+	own0, own1, foreign := testImage(0, raw), testImage(1, raw), testImage(0, raw)
+	b.byIndex = []*Image{own0, own1}
+	h := func() ImageHandle { return ImageHandle(unsafe.Pointer(&make([]byte, 1)[0])) }
+	h0, h1, hf, hu := h(), h(), h(), h()
+	b.byHandle = map[ImageHandle]*Image{h0: own0, h1: own1, hf: foreign}
+	specs := map[int]worldhd.FloorSpec{0: spec(0, "a.png"), 1: spec(1, "a.png")}
+	b.worldHD = newHDAssetLoader(fstest.MapFS{"a.png": {Data: data}}, specs, newHDAssetCache(hdAssetBudget))
+	defer b.worldHD.Close()
+	b.PrefetchWorldHD([]ImageHandle{nil, hu, hf, h0, h1, h0})
+	if b.worldHD.stats.Prefetched != 2 || b.worldHD.pending[own0] == 0 || b.worldHD.pending[own1] == 0 || b.worldHD.pending[foreign] != 0 {
+		t.Fatalf("prefetched %d pending %v", b.worldHD.stats.Prefetched, b.worldHD.pending)
+	}
+	var none RenderSprites
+	none.PrefetchWorldHD([]ImageHandle{h0}) // no asset set bound
+	if none.WorldHDPrefetchQueued() != 0 {
+		t.Fatal("unbound bag queued work")
 	}
 }
