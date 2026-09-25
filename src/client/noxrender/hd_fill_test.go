@@ -101,3 +101,37 @@ func BenchmarkWorldHDOpaqueFill(b *testing.B) {
 		})
 	}
 }
+
+// Cinema letterbox bars are drawn inside the world HD frame; they must be
+// mirrored instead of vetoing the frame (war01a cutscene fell back to 1x).
+func TestWorldHDCinemaBars(t *testing.T) {
+	for _, in := range []bool{true, false} {
+		r := hdTestRender(8, 6)
+		for i := range r.pix.Pix {
+			r.pix.Pix[i] = uint16(i*37 + 9)
+		}
+		if in {
+			r.FadeInCinema(0.5, 2, color.Black)
+		} else {
+			r.FadeOutCinema(0.5, 2, color.Black)
+		}
+		if !r.BeginWorldHDFrame() {
+			t.Fatal("begin failed")
+		}
+		r.DrawFade(false)
+		out := r.EndHDFrame()
+		if out == nil {
+			t.Fatalf("in=%t: cinema bars vetoed the HD frame", in)
+		}
+		if r.pix.Pix[0] != 0 || r.pix.Pix[len(r.pix.Pix)-1] != 0 {
+			t.Fatalf("in=%t: bars not drawn", in)
+		}
+		for y := 0; y < 12; y++ {
+			for x := 0; x < 16; x++ {
+				if out.Pix[y*16+x] != r.pix.Pix[(y/2)*8+x/2] {
+					t.Fatalf("in=%t: HD pixel %d,%d differs from 2x logical", in, x, y)
+				}
+			}
+		}
+	}
+}

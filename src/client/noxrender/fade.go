@@ -140,7 +140,7 @@ func (r *NoxRender) FadeInCinema(perc float32, t int, cl color.Color) bool {
 	if f == nil {
 		return false
 	}
-	v := perc * float32(r.PixBuffer().Rect.Dy())
+	v := perc * float32(r.PixBufferRect().Dy())
 	var (
 		cur = float32(0)
 		dv  = v / float32(t)
@@ -159,7 +159,7 @@ func (r *NoxRender) FadeOutCinema(perc float32, t int, cl color.Color) bool {
 	if f == nil {
 		return false
 	}
-	v := perc * float32(r.PixBuffer().Rect.Dy())
+	v := perc * float32(r.PixBufferRect().Dy())
 	var (
 		cur  = v
 		dv   = v / float32(t)
@@ -176,10 +176,11 @@ func (r *NoxRender) FadeOutCinema(perc float32, t int, cl color.Color) bool {
 	return true
 }
 
+// Only the size is read; the bars are opaque fills mirrored to the HD frame.
 func (r *NoxRender) drawFadeCinema(v int, cl color.Color) {
-	pix := r.PixBuffer()
-	r.DrawRectFilledOpaque(0, 0, pix.Rect.Dx(), v, cl)
-	r.DrawRectFilledOpaque(0, pix.Rect.Dy()-v, pix.Rect.Dx(), v, cl)
+	rc := r.PixBufferRect()
+	r.DrawRectFilledOpaque(0, 0, rc.Dx(), v, cl)
+	r.DrawRectFilledOpaque(0, rc.Dy()-v, rc.Dx(), v, cl)
 }
 
 func (r *NoxRender) FadeClearScreen(menu bool, cl color.Color) bool {
