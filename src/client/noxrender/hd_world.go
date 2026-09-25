@@ -168,6 +168,35 @@ func (r *NoxRender) MirrorWorldOpaque(dst []uint16) {
 	}
 }
 
+// hdSpanIndexed is hdSpan for an indexed run (4.2-M6b): with an installed
+// asset both HD rows take their shades from the asset's low bytes and keep the
+// run's colour slot; otherwise, or if the run does not fit, it is the 2x path.
+func (r *NoxRender) hdSpanIndexed(pos, local image.Point, src []byte, n int, op byte, fn drawOp8Func) {
+	s, stride := r.hd.sprite, r.hd.spriteStride
+	if s == nil || !r.hd.world || local.X < 0 || local.Y < 0 || n <= 0 || 2*(local.X+n) > stride || (2*local.Y+2)*stride > len(s) {
+		r.hdImageSpanIndexed(pos, src, n, op, fn)
+		return
+	}
+	if !r.hd.active {
+		return
+	}
+	if fn == nil || !pos.In(r.pix.Rect) || n > r.pix.Rect.Max.X-pos.X {
+		r.RejectWorldHD("invalid indexed span")
+		return
+	}
+	if cap(r.hd.worldSpanSource) < 2*n {
+		r.hd.worldSpanSource = make([]byte, 2*n)
+	}
+	shades := r.hd.worldSpanSource[:2*n]
+	for y := 0; y < 2; y++ {
+		i := (2*local.Y+y)*stride + 2*local.X
+		for x, v := range s[i : i+2*n] {
+			shades[x] = byte(v)
+		}
+		_, _ = fn(r.hd.pix.Row(pos.Y*2 + y)[pos.X*2:], shades, op, 2*n)
+	}
+}
+
 func (r *NoxRender) hdImageSpanIndexed(pos image.Point, src []byte, n int, op byte, fn drawOp8Func) {
 	if !r.hd.active || !r.hd.world || n <= 0 {
 		return

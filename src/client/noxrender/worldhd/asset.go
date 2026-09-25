@@ -16,9 +16,11 @@ import (
 // ConvertAsset turns one verified PNG replacement into density-2 16-bit samples
 // (row-major, stride LogicalSize.X*2) in the encoding the original draw op reads:
 // RGB555 for floors and opaque sprite runs (op 2/7), RGBA4444 for alpha runs
-// (op 5). HD coverage must equal the original coverage: uncovered pixels need
-// alpha 0, opaque ones alpha 255. Indexed (op 4) and op 6 runs are not
-// supported yet (4.2-M6b), so such records are rejected and stay original.
+// (op 5) and the 8-bit shade for indexed runs (op 4, 4.2-M6b), whose colour
+// slot still comes from the original run. HD coverage must equal the original
+// coverage: uncovered pixels need alpha 0, opaque and indexed ones alpha 255,
+// and indexed ones must be grey (R=G=B, the shade). Records with op 6 runs are
+// rejected and stay original.
 // FloorSpec/FloorSource describe any record type here, not only floors.
 const MaxAssetPNG = 8 << 20
 
@@ -29,9 +31,10 @@ func AssetPixels(s FloorSpec) int {
 
 // Per logical pixel coverage used for conversion (op&0xF values, 0 = uncovered).
 const (
-	covNone   = 0
-	covOpaque = 2
-	covAlpha  = 5
+	covNone    = 0
+	covOpaque  = 2
+	covIndexed = 4
+	covAlpha   = 5
 )
 
 func ConvertAsset(s FloorSpec, data []byte, src FloorSource, dst []uint16) error {
@@ -79,6 +82,11 @@ func ConvertAsset(s FloorSpec, data []byte, src FloorSource, dst []uint16) error
 				v = uint16(noxcolor.RGB5551Color(c.R, c.G, c.B))
 			case covAlpha:
 				v = uint16(noxcolor.RGBA4444Color(c.R, c.G, c.B, c.A))
+			case covIndexed:
+				if a != 0xffff || c.R != c.G || c.R != c.B {
+					return fmt.Errorf("asset %d: indexed pixel not opaque grey at %d,%d", s.ID, x, y)
+				}
+				v = uint16(c.R)
 			}
 			dst[y*2*w+x] = v
 		}
@@ -139,19 +147,26 @@ func runCoverage(s FloorSpec, raw []byte) ([]byte, error) {
 			case 1:
 			case 2, 7:
 				c = covOpaque
+			case 4:
+				c = covIndexed
 			case 5:
 				c = covAlpha
-			case 4, 6:
+			case 6:
 				return nil, fmt.Errorf("unsupported run op %d", op)
 			default:
 				return nil, fmt.Errorf("invalid run op %d", op)
 			}
-			if n == 0 || (op != 1 && len(pix) < 2*n) {
+			size := 2 * n
+			switch op {
+			case 1:
+				size = 0
+			case 4:
+				size = n
+			}
+			if n == 0 || len(pix) < size {
 				return nil, errors.New("invalid run length")
 			}
-			if op != 1 {
-				pix = pix[2*n:]
-			}
+			pix = pix[size:]
 			for i := x; i < x+n && i < w; i++ {
 				cov[y*w+i] = c
 			}

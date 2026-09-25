@@ -283,7 +283,7 @@ func (r *NoxRender) nox_client_drawImg_aaa_4C79F0(ops *drawOps, img Image16, pos
 				}
 				dst, src = ops.draw27(dst, src, val)
 			case 4:
-				r.hdImageSpanIndexed(image.Pt(pos.X+j, pos.Y+i), src, val, op>>4, ops.draw4)
+				r.hdSpanIndexed(image.Pt(pos.X+j, pos.Y+i), image.Pt(j, i), src, val, op>>4, ops.draw4)
 				dst, src = ops.draw4(dst, src, op>>4, val)
 			case 5:
 				if r.hd.active {
@@ -402,7 +402,7 @@ func (r *NoxRender) nox_client_drawXxx_4C7C80(ops *drawOps, pix []byte, pos imag
 				xw -= d
 			}
 			if fnc8 != nil {
-				r.hdImageSpanIndexed(image.Pt(xs, yi), pix2, xw, op>>4, fnc8)
+				r.hdSpanIndexed(image.Pt(xs, yi), image.Pt(xs-pos.X, yi-pos.Y), pix2, xw, op>>4, fnc8)
 				_, _ = fnc8(row2, pix2, op>>4, xw)
 				pix = pix[n:]
 			} else {

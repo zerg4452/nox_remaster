@@ -49,7 +49,11 @@ func spriteRecord(ops ...byte) []byte {
 	counts := []byte{1, 1, 1, 2, 1}
 	for i, op := range ops {
 		raw = append(raw, op, counts[i])
-		if op != 1 {
+		switch op & 0xF {
+		case 1:
+		case 4: // one shade byte per pixel
+			raw = append(raw, make([]byte, int(counts[i]))...)
+		default:
 			raw = append(raw, make([]byte, 2*int(counts[i]))...)
 		}
 	}
@@ -105,14 +109,44 @@ func TestWorldHDConvertAssetSpriteRuns(t *testing.T) {
 	}
 }
 
+// Indexed runs (4.2-M6b) keep the grey shade; the colour slot is not stored.
+func TestWorldHDConvertAssetIndexedRuns(t *testing.T) {
+	s, data, src := spriteFixture(t, spriteRecord(1, 0x34, 5, 7, 1), greyIndexed(255))
+	dst := make([]uint16, AssetPixels(s))
+	if err := ConvertAsset(s, data, src, dst); err != nil {
+		t.Fatal(err)
+	}
+	for y := 0; y < 2; y++ {
+		for x := 2; x < 4; x++ {
+			if want := uint16(10*x + 3*y + 1); dst[y*6+x] != want {
+				t.Fatalf("shade %d,%d: %#x != %#x", x, y, dst[y*6+x], want)
+			}
+		}
+	}
+}
+
+// greyIndexed paints the op-4 pixel (1,0) of spriteRecord with distinct shades.
+func greyIndexed(a uint8) func(*image.NRGBA) {
+	return func(im *image.NRGBA) {
+		for y := 0; y < 2; y++ {
+			for x := 2; x < 4; x++ {
+				v := uint8(10*x + 3*y + 1)
+				im.SetNRGBA(x, y, color.NRGBA{R: v, G: v, B: v, A: a})
+			}
+		}
+	}
+}
+
 func TestWorldHDConvertAssetRejects(t *testing.T) {
-	for _, name := range []string{"indexed op4", "op6", "outside coverage", "opaque not opaque", "record size", "record offset", "source hash", "source type", "png hash", "png size", "density", "path", "destination", "type"} {
+	for _, name := range []string{"indexed not grey", "indexed not opaque", "op6", "outside coverage", "opaque not opaque", "record size", "record offset", "source hash", "source type", "png hash", "png size", "density", "path", "destination", "type"} {
 		t.Run(name, func(t *testing.T) {
 			raw := spriteRecord()
 			var edit func(*image.NRGBA)
 			switch name {
-			case "indexed op4":
+			case "indexed not grey":
 				raw = spriteRecord(1, 4, 5, 7, 1)
+			case "indexed not opaque":
+				raw, edit = spriteRecord(1, 4, 5, 7, 1), greyIndexed(254)
 			case "op6":
 				raw = spriteRecord(1, 6, 5, 7, 1)
 			case "outside coverage":

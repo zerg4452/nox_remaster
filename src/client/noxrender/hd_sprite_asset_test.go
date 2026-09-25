@@ -40,7 +40,8 @@ func spriteAssetRecord() []byte {
 	return rec
 }
 
-// replicaAsset repeats every original sample 2x2 (uncovered pixels stay 0).
+// replicaAsset repeats every original sample 2x2 (uncovered pixels stay 0);
+// indexed (op 4) samples are the one-byte shades.
 func replicaAsset(rec []byte) []uint16 {
 	w, h := int(binary.LittleEndian.Uint32(rec[0:])), int(binary.LittleEndian.Uint32(rec[4:]))
 	out := make([]uint16, 4*w*h)
@@ -49,15 +50,23 @@ func replicaAsset(rec []byte) []uint16 {
 		for x := 0; x < w; {
 			op, n := pix[0]&0xF, int(pix[1])
 			pix = pix[2:]
+			size := 2 * n
+			switch op {
+			case 1:
+				size = 0
+			case 4:
+				size = n
+			}
 			for i := 0; i < n && op != 1; i++ {
-				v := binary.LittleEndian.Uint16(pix[2*i:])
+				v := uint16(pix[i])
+				if op != 4 {
+					v = binary.LittleEndian.Uint16(pix[2*i:])
+				}
 				for d := 0; d < 4; d++ {
 					out[(2*y+d/2)*2*w+2*(x+i)+d%2] = v
 				}
 			}
-			if op != 1 {
-				pix = pix[2*n:]
-			}
+			pix = pix[size:]
 			x += n
 		}
 	}
@@ -140,6 +149,97 @@ func TestWorldHDSpriteAsset(t *testing.T) {
 		}
 		if r.hd.sprite != nil {
 			t.Fatal("sprite asset leaked past the draw")
+		}
+	}
+}
+
+// indexedAssetRecord: type-4 record 4x3 at offset (1,1) mixing skip, opaque
+// runs and indexed runs of colour slots 0-2 with distinct shades.
+func indexedAssetRecord() []byte {
+	rec := make([]byte, 17)
+	binary.LittleEndian.PutUint32(rec[0:], 4)
+	binary.LittleEndian.PutUint32(rec[4:], 3)
+	binary.LittleEndian.PutUint32(rec[8:], 1)
+	binary.LittleEndian.PutUint32(rec[12:], 1)
+	shade := byte(0x17)
+	run := func(op byte, n int) {
+		rec = append(rec, op, byte(n))
+		for i := 0; i < n; i++ {
+			switch op & 0xF {
+			case 2:
+				rec = binary.LittleEndian.AppendUint16(rec, 0x2a55+uint16(i))
+			case 4:
+				shade += 0x1d
+				rec = append(rec, shade)
+			}
+		}
+	}
+	run(1, 1)
+	run(0x14, 2)
+	run(2, 1)
+	run(0x24, 3)
+	run(1, 1)
+	run(2, 1)
+	run(0x04, 2)
+	run(1, 1)
+	return rec
+}
+
+// Indexed runs (4.2-M6b): a replica asset reproduces the 2x path in every
+// indexed blend mode, and a changed shade reaches exactly its HD pixel with
+// the run's colour slot.
+func TestWorldHDSpriteIndexedAsset(t *testing.T) {
+	rec := indexedAssetRecord()
+	modes := []struct {
+		name            string
+		alpha, multiply bool
+		a               byte
+	}{
+		{name: "src"}, {name: "alpha50", alpha: true, a: 0x80}, {name: "alpha", alpha: true, a: 0x60},
+		{name: "multiply", multiply: true}, {name: "multiply alpha50", alpha: true, multiply: true, a: 0x80},
+		{name: "multiply alpha", alpha: true, multiply: true, a: 0x60},
+	}
+	for _, m := range modes {
+		for _, clip := range []bool{false, true} {
+			render := func(asset []uint16) (*NoxRender, *Image) {
+				r, img := spriteAssetRender(rec, false, asset, clip)
+				img.bag.Type = 4
+				d := r.Data()
+				d.SetMaterialRGB(1, 0xe0, 0x80, 0x30)
+				d.SetMaterialRGB(2, 0x40, 0xc8, 0xf8)
+				d.SetAlphaEnabled(m.alpha)
+				d.SetAlpha(m.a)
+				if m.multiply {
+					d.SetMultiply14(1)
+					d.SetColorMultA(Color16{R: 0xc0, G: 0x90, B: 0x70})
+				}
+				return r, img
+			}
+			base, baseImg := render(nil)
+			wantLogical, wantHD := drawSpriteHD(t, base, baseImg)
+
+			r, img := render(replicaAsset(rec))
+			logical, hd := drawSpriteHD(t, r, img)
+			if !reflect.DeepEqual(logical, wantLogical) || !reflect.DeepEqual(hd, wantHD) {
+				t.Fatalf("%s clip=%t: replica asset changed output", m.name, clip)
+			}
+			if m.name != "src" {
+				continue
+			}
+			// Image-local (1,1) is a slot-2 indexed pixel drawn at screen
+			// (1+1+1, 0+1+1) = (3,2); asset subpixel (3,3) maps to HD (7,5).
+			asset := replicaAsset(rec)
+			asset[3*8+3] = 0x9b
+			r, img = render(asset)
+			logical, hd = drawSpriteHD(t, r, img)
+			want := append([]uint16(nil), wantHD...)
+			want[5*r.hd.pix.Stride+7] = r.Data().ColorMultOp(2).MultI(0x9b).Make16()
+			if want[5*r.hd.pix.Stride+7] == wantHD[5*r.hd.pix.Stride+7] {
+				t.Fatal("test shade does not change the pixel")
+			}
+			if !reflect.DeepEqual(logical, wantLogical) || !reflect.DeepEqual(hd, want) {
+				t.Fatalf("clip=%t: indexed asset sample not used exactly once", clip)
+			}
 		}
 	}
 }

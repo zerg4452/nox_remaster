@@ -17,8 +17,9 @@ import (
 	noxcolor "github.com/noxworld-dev/opennox-lib/color"
 )
 
-// Real sprite records (4.2-M6): a 2x replica PNG of every sampled type 3/5
-// record with only op 1/2/5/7 runs must convert back to the original samples.
+// Real sprite records (4.2-M6, M6b): a 2x replica PNG of every sampled type
+// 3/4/5 record without op 6 runs must convert back to the original samples
+// (indexed op-4 shades as grey pixels).
 func TestWorldHDRealSpriteReplicaRoundTrip(t *testing.T) {
 	root := os.Getenv("NOX_WORLDHD_TEST_PROJECT")
 	if root == "" {
@@ -33,9 +34,9 @@ func TestWorldHDRealSpriteReplicaRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checked, skipped, bit15 := 0, 0, 0
+	checked, skipped, bit15, indexed := 0, 0, 0, 0
 	for i, r := range records {
-		if (r.Type != 3 && r.Type != 5) || i%10 != 0 {
+		if (r.Type < 3 || r.Type > 5) || i%10 != 0 {
 			continue
 		}
 		raw, err := r.Raw()
@@ -49,7 +50,7 @@ func TestWorldHDRealSpriteReplicaRoundTrip(t *testing.T) {
 		}
 		want := make([]uint16, 4*w*h)
 		im := image.NewNRGBA(image.Rect(0, 0, 2*w, 2*h))
-		pix, ok := raw[17:], true
+		pix, ok, runs4 := raw[17:], true, 0
 		for y := 0; y < h && ok; y++ {
 			for x := 0; x < w && ok; {
 				if len(pix) < 2 {
@@ -58,14 +59,27 @@ func TestWorldHDRealSpriteReplicaRoundTrip(t *testing.T) {
 				}
 				op, n := pix[0]&0xF, int(pix[1])
 				pix = pix[2:]
-				if op != 1 && op != 2 && op != 5 && op != 7 || n == 0 || op != 1 && len(pix) < 2*n {
+				size := 2 * n
+				switch op {
+				case 1:
+					size = 0
+				case 4:
+					size = n
+				}
+				if op != 1 && op != 2 && op != 4 && op != 5 && op != 7 || n == 0 || len(pix) < size {
 					ok = false
 					break
 				}
+				if op == 4 {
+					runs4++
+				}
 				for j := 0; j < n && op != 1 && x+j < w; j++ {
-					v := binary.LittleEndian.Uint16(pix[2*j:])
+					var v uint16
 					var c color.NRGBA
-					if op == 5 {
+					if op == 4 {
+						v = uint16(pix[j])
+						c = color.NRGBA{R: pix[j], G: pix[j], B: pix[j], A: 255}
+					} else if v = binary.LittleEndian.Uint16(pix[2*j:]); op == 5 {
 						c = noxcolor.RGBA4444(v).ColorNRGBA()
 					} else {
 						if v&0x8000 != 0 {
@@ -81,9 +95,7 @@ func TestWorldHDRealSpriteReplicaRoundTrip(t *testing.T) {
 						want[py*2*w+px] = v
 					}
 				}
-				if op != 1 {
-					pix = pix[2*n:]
-				}
+				pix = pix[size:]
 				x += n
 			}
 		}
@@ -107,9 +119,13 @@ func TestWorldHDRealSpriteReplicaRoundTrip(t *testing.T) {
 			}
 		}
 		checked++
+		indexed += runs4
 	}
 	if checked < 1000 {
 		t.Fatalf("too few records checked: %d", checked)
 	}
-	t.Logf("real sprite replicas: %d round-tripped, %d skipped (op4/op6 or malformed), %d opaque samples had bit 15 set", checked, skipped, bit15)
+	if indexed == 0 {
+		t.Fatal("no indexed runs checked")
+	}
+	t.Logf("real sprite replicas: %d round-tripped (%d indexed runs), %d skipped (op6 or malformed), %d opaque samples had bit 15 set", checked, indexed, skipped, bit15)
 }
