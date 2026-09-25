@@ -50,6 +50,7 @@ type nox_arr_84EB20_t struct {
 
 type clientTileData struct {
 	hd             *worldhd.Tiles
+	hdSpare        *worldhd.Tiles // kept across floor buffer recreation for reuse
 	noxTilesGpx    int
 	noxTilesGpy    int
 	noxTileBuf     []uint16
@@ -488,8 +489,15 @@ func (c *Client) nox_xxx_tileInitBuf_430DB0(width, height int) {
 	c.tiles.noxTileBuf, c.tiles.noxTileBufFree = alloc.Make([]uint16{}, sz/2)
 	c.tiles.hd = nil
 	if c.r.Bag.WorldHDAssetCount() != 0 {
-		c.tiles.hd = worldhd.NewTiles(c.tiles.dword_5d4594_3798804/2, c.tiles.dword_5d4594_3798808)
+		w, h := c.tiles.dword_5d4594_3798804/2, c.tiles.dword_5d4594_3798808
+		if s := c.tiles.hdSpare; s != nil && s.Width == w && s.Height == h {
+			s.Reset()
+			c.tiles.hd = s
+		} else {
+			c.tiles.hd = worldhd.NewTiles(w, h)
+		}
 	}
+	c.tiles.hdSpare = c.tiles.hd
 	legacy.SetWorldHDTiles(c.tiles.hd != nil)
 	legacy.Set_nox_video_tileBuf_ptr_3798796(unsafe.Pointer(&c.tiles.noxTileBuf[0]))
 	legacy.Set_nox_video_tileBuf_end_3798844(unsafe.Add(unsafe.Pointer(&c.tiles.noxTileBuf[0]), sz))

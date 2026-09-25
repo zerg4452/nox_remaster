@@ -70,6 +70,7 @@ func init() {
 func (c *Client) beginWorldHD() {
 	worldHD.open = false
 	worldHD.ready = nil
+	memoryDiagTick()
 	c.r.Bag.BeginWorldHDAssets()
 	if nox_client_gui_flag_815132 != 0 || c.r.Bag.WorldHDAssetCount() == 0 || c.r.PixBufferRect() != image.Rect(0, 0, 1280, 720) {
 		return

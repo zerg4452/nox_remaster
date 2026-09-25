@@ -67,6 +67,25 @@ func TestTilesRingAndEdges(t *testing.T) {
 	}
 }
 
+// A reused ring must not expose any sample from before the reset.
+func TestTilesResetForReuse(t *testing.T) {
+	ring := NewTiles(64, 64)
+	raw := make([]byte, 2116)
+	if !ring.Base(100, raw, fixtureSamples(t)) {
+		t.Fatal("base rejected")
+	}
+	ring.Invalidate()
+	ring.Reset()
+	if !ring.Ready() {
+		t.Fatal("reset ring not ready")
+	}
+	for i := 0; i < 64*64; i++ {
+		if v, detail := ring.Pixel(i, 0x2222); detail || v != [4]uint16{0x2222, 0x2222, 0x2222, 0x2222} {
+			t.Fatalf("cell %d kept pre-reset samples", i)
+		}
+	}
+}
+
 func TestTilesDiamondAndLight(t *testing.T) {
 	count := 0
 	for y := 0; y < 46; y++ {

@@ -21,6 +21,9 @@ type hdTarget struct {
 	// world frame (4.2-M6), spriteStride its row length in samples.
 	sprite       []uint16
 	spriteStride int
+	// menuPix and worldPix keep one target per mode so switching between the
+	// menu and the world (every map load) reuses them instead of reallocating.
+	menuPix, worldPix *noximage.Image16
 }
 
 // BeginHDFrame starts an optional operation target without replacing the logical
@@ -44,9 +47,10 @@ func (r *NoxRender) BeginHDFrame(background *noximage.Image16) bool {
 			return false
 		}
 	}
-	if r.hd.pix == nil || r.hd.pix.Rect != background.Rect {
-		r.hd.pix = noximage.NewImage16(background.Rect)
+	if r.hd.menuPix == nil || r.hd.menuPix.Rect != background.Rect {
+		r.hd.menuPix = noximage.NewImage16(background.Rect)
 	}
+	r.hd.pix = r.hd.menuPix
 	for y := 0; y < background.Rect.Dy(); y++ {
 		copy(r.hd.pix.Row(y), background.Row(y))
 	}

@@ -279,8 +279,14 @@ func nox_xxx_mapReadSectionSpecial_426F40(a1 unsafe.Pointer, name string, fnc un
 	return nil
 }
 
+// onClientMapRead is an optional client diagnostic hook (memory_diag.go).
+var onClientMapRead func()
+
 func nox_xxx_mapCliReadAllA(path string) error {
 	mapLog.Printf("client reading map: %q", path)
+	if onClientMapRead != nil {
+		onClientMapRead()
+	}
 	if err := cryptfile.OpenGlobal(path, cryptfile.ReadOnly, crypt.MapKey); err != nil {
 		return err
 	}

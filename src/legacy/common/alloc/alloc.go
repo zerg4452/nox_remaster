@@ -63,6 +63,17 @@ func CloneSlice[T comparable](src []T) ([]T, func()) {
 	return Make(src, len(src))
 }
 
+// Stats returns the number and total size of live allocations made through
+// this package (diagnostics; C code allocating directly is not included).
+func Stats() (count int, bytes uintptr) {
+	allocMu.Lock()
+	defer allocMu.Unlock()
+	for _, sz := range allocs {
+		bytes += sz
+	}
+	return len(allocs), bytes
+}
+
 func Realloc(ptr unsafe.Pointer, size uintptr) unsafe.Pointer {
 	if size == 0 {
 		panic("zero alloc")

@@ -4,6 +4,8 @@ import (
 	"image"
 	"reflect"
 	"testing"
+
+	"github.com/noxworld-dev/opennox-lib/noximage"
 )
 
 func TestWorldHDDetailAndOpaqueOcclusion(t *testing.T) {
@@ -120,6 +122,44 @@ func TestWorldFloorSpanRowsMatchSet(t *testing.T) {
 	}
 	if _, _, ok := b.Rows(); ok {
 		t.Fatal("span exposed rows after the frame was rejected")
+	}
+}
+
+// Map loads switch between the menu and world targets; each keeps its buffer.
+func TestWorldHDBuffersReusedAcrossModes(t *testing.T) {
+	r := hdTestRender(4, 3)
+	for i := range r.pix.Pix {
+		r.pix.Pix[i] = uint16(i + 1)
+	}
+	bg := noximage.NewImage16(image.Rect(0, 0, 12, 9))
+	for i := range bg.Pix {
+		bg.Pix[i] = 0x7000 + uint16(i)
+	}
+	var world, menu *noximage.Image16
+	for i := 0; i < 3; i++ {
+		if !r.BeginWorldHDFrame() {
+			t.Fatal("world begin failed")
+		}
+		out := r.EndHDFrame()
+		if world != nil && out != world {
+			t.Fatal("world target reallocated")
+		}
+		world = out
+		if out.Pix[out.PixOffset(3, 1)] != r.pix.Pix[r.pix.PixOffset(1, 0)] {
+			t.Fatal("reused world target not refreshed from the logical buffer")
+		}
+		if !r.BeginHDFrame(bg) {
+			t.Fatal("menu begin failed")
+		}
+		out = r.EndHDFrame()
+		if menu != nil && out != menu {
+			t.Fatal("menu target reallocated")
+		}
+		menu = out
+		if out == world || !reflect.DeepEqual(out.Pix, bg.Pix) {
+			t.Fatal("menu target shared with world or not refreshed")
+		}
+		r.pix.Pix[r.pix.PixOffset(1, 0)] += 3
 	}
 }
 

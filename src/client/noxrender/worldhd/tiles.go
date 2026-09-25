@@ -25,6 +25,14 @@ func (t *Tiles) Invalidate() {
 }
 func (t *Tiles) Ready() bool { return t != nil && t.ok }
 
+// Reset returns every cell to "original" and makes the ring ready again, so a
+// ring of the same size is reused when the floor buffer is recreated.
+func (t *Tiles) Reset() {
+	clear(t.valid)
+	clear(t.detail)
+	t.ok = true
+}
+
 // Opaque mirrors the original ground-decoration writer after its ring clipping.
 func (t *Tiles) Opaque(index int, src []uint16) {
 	if !t.Ready() {

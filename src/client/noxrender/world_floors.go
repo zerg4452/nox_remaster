@@ -64,5 +64,14 @@ func (b *RenderSprites) WorldHDAsset(im *Image) []uint16 {
 	return nil
 }
 
+// MemoryStats reports HD cache usage and original image data copied to C
+// memory by Pixdata (diagnostics).
+func (b *RenderSprites) MemoryStats() (hdBytes, hdAssets int, pixBytes, pixCount int64) {
+	if b.worldHD != nil {
+		hdBytes, hdAssets = b.worldHD.cache.bytes, len(b.worldHD.cache.byImage)
+	}
+	return hdBytes, hdAssets, pixdataInterned.bytes, pixdataInterned.count
+}
+
 // BeginWorldHDAssets starts an asset frame and installs finished conversions.
 func (b *RenderSprites) BeginWorldHDAssets() { b.worldHD.BeginFrame() }
