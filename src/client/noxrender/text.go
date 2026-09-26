@@ -162,6 +162,11 @@ func (r *NoxRender) initText() {
 	r.text.useBold = true
 }
 
+// SetHDGlyphSmoothing enables Scale2x glyphs in world HD frames (4.4-004 B1).
+func (r *NoxRender) SetHDGlyphSmoothing(enabled bool) {
+	r.hd.glyphSmooth = enabled
+}
+
 func (r *NoxRender) SetTextSmooting(enabled bool) {
 	r.text.smooth = enabled
 }

@@ -21,11 +21,13 @@ func (r *NoxRender) hdGlyph(dr image.Rectangle, mask image.Image, maskp image.Po
 	view := hdGlyphPhase{pix: r.hd.pix, clip: clip, scale: r.hd.scale}
 	if bm, ok := mask.(*noxfont.Bitmap); ok {
 		view.bitmap.Bitmap = bm
+		view.bitmap.epx = r.hd.glyphSmooth && r.hd.world && view.scale == 2
 		mask = &view.bitmap
 	}
 	for y := 0; y < view.scale; y++ {
 		for x := 0; x < view.scale; x++ {
 			view.phase = image.Pt(x, y)
+			view.bitmap.phase = view.phase
 			// Keep dr and maskp paired; DrawMask adjusts both for clipping.
 			draw.DrawMask(&view, dr, r.text.Src, image.Point{}, mask, maskp, draw.Over)
 		}
@@ -65,16 +67,55 @@ func (p *hdGlyphPhase) SetRGBA64(x, y int, c color.RGBA64) {
 
 // hdGlyphBitmap adds RGBA64At to a 1-bit font glyph; it reads the same bit as
 // Bitmap.At (which boxes color.Opaque per call) and returns its RGBA values.
+// With epx set it returns the Scale2x (EPX) sub-sample of the drawing phase,
+// which only smooths diagonal steps and never moves the glyph outline by more
+// than half a logical pixel.
 type hdGlyphBitmap struct {
 	*noxfont.Bitmap
+	epx   bool
+	phase image.Point
+}
+
+func (m *hdGlyphBitmap) bit(x, y int) bool {
+	if !(image.Point{X: x, Y: y}.In(m.Rect)) {
+		return false
+	}
+	i, j := m.BitOffsets(x, y)
+	return (m.Pix[i]>>j)&1 != 0
+}
+
+// At matches RGBA64At, so generic DrawMask callers see the same samples.
+func (m *hdGlyphBitmap) At(x, y int) color.Color {
+	if m.RGBA64At(x, y).A != 0 {
+		return color.Opaque
+	}
+	return color.Transparent
 }
 
 func (m *hdGlyphBitmap) RGBA64At(x, y int) color.RGBA64 {
-	if !(image.Point{X: x, Y: y}.In(m.Rect)) {
-		return color.RGBA64{}
+	on := m.bit(x, y)
+	if m.epx {
+		a, b, c, d := m.bit(x, y-1), m.bit(x+1, y), m.bit(x-1, y), m.bit(x, y+1)
+		switch m.phase {
+		case image.Point{}:
+			if c == a && c != d && a != b {
+				on = a
+			}
+		case image.Point{X: 1}:
+			if a == b && a != c && b != d {
+				on = b
+			}
+		case image.Point{Y: 1}:
+			if d == c && d != b && c != a {
+				on = c
+			}
+		default:
+			if b == d && b != a && d != c {
+				on = d
+			}
+		}
 	}
-	i, j := m.BitOffsets(x, y)
-	if (m.Pix[i]>>j)&1 == 0 {
+	if !on {
 		return color.RGBA64{}
 	}
 	return color.RGBA64{R: 0xffff, G: 0xffff, B: 0xffff, A: 0xffff}

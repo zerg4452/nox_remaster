@@ -33,6 +33,9 @@ type hdTarget struct {
 	// menu and the world (every map load) reuses them instead of reallocating.
 	// Both live on the C heap (see resizeHDTarget).
 	menuPix, worldPix *noximage.Image16
+	// glyphSmooth draws world-frame 1-bit glyphs through Scale2x (4.4-004 B1)
+	// instead of replicating each bit; glyph metrics are unchanged.
+	glyphSmooth bool
 }
 
 // resizeHDTarget returns old when it already has rect, otherwise frees it and

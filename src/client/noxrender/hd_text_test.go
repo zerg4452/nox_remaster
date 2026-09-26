@@ -213,7 +213,7 @@ func TestHDGlyphRGBA64MatchesGenericDrawMask(t *testing.T) {
 			old, cur image.Image
 			maskp    image.Point
 		}{
-			{"bitmap", bm, &hdGlyphBitmap{bm}, bm.Rect.Min},
+			{"bitmap", bm, &hdGlyphBitmap{Bitmap: bm}, bm.Rect.Min},
 			{"alpha", alpha, alpha, alpha.Rect.Min},
 		} {
 			want, got := newDst(), newDst()
@@ -246,5 +246,88 @@ func TestHDGlyphBitmapAllocations(t *testing.T) {
 	})
 	if allocs > 2 {
 		t.Fatalf("hdGlyph allocs=%v for 16x16 glyph at 3x", allocs)
+	}
+}
+
+// 4.4-004 B1: world-frame glyphs use Scale2x sub-samples; with the option off
+// or in a menu frame every logical bit is replicated as before, and the
+// logical output is identical in all cases.
+func TestHDGlyphScale2x(t *testing.T) {
+	const w, h = 6, 6
+	grid := [h]string{"#.....", ".#....", "..##..", "..##..", "....#.", "#....#"}
+	bm := &noxfont.Bitmap{Pix: make([]byte, h), Stride: 1, Rect: image.Rect(0, 0, w, h)}
+	on := func(x, y int) bool { return x >= 0 && y >= 0 && x < w && y < h && grid[y][x] == '#' }
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if on(x, y) {
+				bm.Pix[y] |= 0x80 >> x
+			}
+		}
+	}
+	epx := func(x, y int) [4]bool {
+		p, a, b, c, d := on(x, y), on(x, y-1), on(x+1, y), on(x-1, y), on(x, y+1)
+		e := [4]bool{p, p, p, p}
+		if c == a && c != d && a != b {
+			e[0] = a
+		}
+		if a == b && a != c && b != d {
+			e[1] = b
+		}
+		if d == c && d != b && c != a {
+			e[2] = c
+		}
+		if b == d && b != a && d != c {
+			e[3] = d
+		}
+		return e
+	}
+	draw1 := func(smooth, world bool) *noximage.Image16 {
+		r := hdTestRender(w, h)
+		r.p.SetTextColor(color.White)
+		if !r.BeginWorldHDFrame() {
+			t.Fatal("world HD frame not opened")
+		}
+		r.hd.world = world
+		r.SetHDGlyphSmoothing(smooth)
+		r.text.Src = image.NewUniform(color.White)
+		r.hdGlyph(bm.Rect, bm, bm.Rect.Min)
+		return r.hd.pix
+	}
+	white := func(pix *noximage.Image16, x, y int) bool { return pix.Pix[pix.PixOffset(x, y)] != 0 }
+	changed := 0
+	for _, c := range []struct{ smooth, world bool }{{true, true}, {false, true}, {true, false}} {
+		pix := draw1(c.smooth, c.world)
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				want := [4]bool{on(x, y), on(x, y), on(x, y), on(x, y)}
+				if c.smooth && c.world {
+					want = epx(x, y)
+				}
+				for k, v := range want {
+					if got := white(pix, 2*x+k%2, 2*y+k/2); got != v {
+						t.Fatalf("smooth=%t world=%t: sample %d,%d = %t, want %t", c.smooth, c.world, 2*x+k%2, 2*y+k/2, got, v)
+					}
+					if c.smooth && c.world && v != on(x, y) {
+						changed++
+					}
+				}
+			}
+		}
+	}
+	if changed == 0 {
+		t.Fatal("test glyph has no diagonal to smooth")
+	}
+	// At/RGBA64At agree so generic and fast DrawMask paths match.
+	m := &hdGlyphBitmap{Bitmap: bm, epx: true}
+	for _, ph := range []image.Point{{}, {X: 1}, {Y: 1}, {X: 1, Y: 1}} {
+		m.phase = ph
+		for y := -1; y <= h; y++ {
+			for x := -1; x <= w; x++ {
+				_, _, _, a := m.At(x, y).RGBA()
+				if (a != 0) != (m.RGBA64At(x, y).A != 0) {
+					t.Fatalf("At and RGBA64At differ at %d,%d phase %v", x, y, ph)
+				}
+			}
+		}
 	}
 }

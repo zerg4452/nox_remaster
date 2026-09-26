@@ -137,6 +137,8 @@ func (c *Client) beginWorldHD() {
 		return
 	}
 	worldHD.open = c.r.BeginWorldHDFrame()
+	// In-game text uses Scale2x glyphs (4.4-004 B1); menu frames keep replicas.
+	c.r.SetHDGlyphSmoothing(true)
 }
 
 func (c *Client) endWorldHD() {
