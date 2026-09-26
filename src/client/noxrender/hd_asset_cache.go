@@ -19,6 +19,7 @@ type hdAsset struct {
 	free       func()
 	bytes      int
 	used       uint64
+	noted      bool // first draw of this map already counted (noteUse)
 	prev, next *hdAsset
 }
 

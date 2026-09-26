@@ -16,6 +16,7 @@ type FloorSpec struct {
 	LogicalSize  image.Point
 	Offset       image.Point
 	Density      int
+	Shard        string // manifest v2 shard file, "" for v1 (diagnostics only)
 }
 
 // FloorSource must be resolved from the current bag by record index. Raw is the

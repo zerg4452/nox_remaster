@@ -42,6 +42,9 @@ func (b *RenderSprites) WorldHDAsset(im *Image) []uint16 {
 		return nil
 	}
 	if a := b.worldHD.cache.Lookup(im); a != nil {
+		if !a.noted {
+			b.worldHD.noteUse(a)
+		}
 		return a.pix
 	}
 	b.worldHD.Request(im)
@@ -75,6 +78,14 @@ func (b *RenderSprites) PrefetchWorldHD(handles []ImageHandle) int {
 
 // WorldHDPrefetchQueued is the number of prefetched images not yet requested.
 func (b *RenderSprites) WorldHDPrefetchQueued() int { return b.worldHD.PrefetchQueued() }
+
+// ResetWorldHDUsage starts the per-map HD use log ("world-hd use") over; call
+// when a map is loaded.
+func (b *RenderSprites) ResetWorldHDUsage() {
+	if b.worldHD != nil {
+		b.worldHD.resetUse()
+	}
+}
 
 // BeginWorldHDAssets starts an asset frame and installs finished conversions.
 func (b *RenderSprites) BeginWorldHDAssets() { b.worldHD.BeginFrame() }

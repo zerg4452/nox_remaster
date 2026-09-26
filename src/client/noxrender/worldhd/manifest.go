@@ -169,6 +169,7 @@ func ReadAssetIndex(root fs.FS) (map[int]FloorSpec, error) {
 				if err != nil {
 					return nil, err
 				}
+				s.Shard = name
 				specs = append(specs, s)
 			}
 		}

@@ -209,7 +209,7 @@ func TestWorldHDAssetIndex(t *testing.T) {
 		"sub/b.json": js(assetShard{Version: 2, Assets: []ManifestFloor{entry(3)}}),
 	}
 	got, err := ReadAssetIndex(fsys)
-	if err != nil || len(got) != 3 || got[3].Path != "000003.png" || got[1].SourceSHA256 != s.SourceSHA256 {
+	if err != nil || len(got) != 3 || got[3].Path != "000003.png" || got[1].SourceSHA256 != s.SourceSHA256 || got[1].Shard != "a.json" || got[3].Shard != "sub/b.json" {
 		t.Fatalf("v2 index: %v %v", got, err)
 	}
 	// v1 fallback when index.json is absent.

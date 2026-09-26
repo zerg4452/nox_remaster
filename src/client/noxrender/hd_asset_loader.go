@@ -61,6 +61,12 @@ type hdAssetLoader struct {
 	// as the job and byte limits allow, so a large prefetch is never dropped.
 	prefetch []*Image
 	queued   map[*Image]struct{}
+
+	// Per-map HD use diagnostic: record IDs drawn with their asset since the
+	// last map load, and used/total asset counts per manifest shard.
+	usedIDs   map[int]struct{}
+	usedShard map[string]int
+	shardSize map[string]int
 }
 
 func newHDAssetLoader(root fs.FS, specs map[int]worldhd.FloorSpec, cache *hdAssetCache) *hdAssetLoader {
@@ -70,7 +76,11 @@ func newHDAssetLoader(root fs.FS, specs map[int]worldhd.FloorSpec, cache *hdAsse
 		results:    make(chan hdAssetResult, hdLoaderQueue),
 		maxPending: hdLoaderQueue, maxInflight: hdLoaderInflight,
 		pending: make(map[*Image]int), rejected: make(map[*Image]struct{}),
-		queued: make(map[*Image]struct{}),
+		queued:    make(map[*Image]struct{}),
+		shardSize: make(map[string]int),
+	}
+	for _, s := range specs {
+		l.shardSize[s.Shard]++
 	}
 	for i := 0; i < hdLoaderWorkers; i++ {
 		l.wg.Add(1)
@@ -239,6 +249,32 @@ func (l *hdAssetLoader) Close() {
 		l.finish(<-l.results)
 	}
 	l.cache.Clear()
+}
+
+// noteUse logs the first draw of an installed asset since the last map load, so
+// the log shows which asset families are really drawn in HD. An asset evicted
+// and installed again is not counted twice.
+func (l *hdAssetLoader) noteUse(a *hdAsset) {
+	a.noted = true
+	id := a.spec.ID
+	if l.usedIDs == nil {
+		l.usedIDs, l.usedShard = make(map[int]struct{}), make(map[string]int)
+	}
+	if _, ok := l.usedIDs[id]; ok {
+		return
+	}
+	l.usedIDs[id] = struct{}{}
+	l.usedShard[a.spec.Shard]++
+	Log.Printf("world-hd use id=%d type=%d shard=%s shard_used=%d/%d used=%d/%d", id, a.spec.Type, a.spec.Shard, l.usedShard[a.spec.Shard], l.shardSize[a.spec.Shard], len(l.usedIDs), len(l.specs))
+}
+
+// resetUse starts a new per-map use count.
+func (l *hdAssetLoader) resetUse() {
+	clear(l.usedIDs)
+	clear(l.usedShard)
+	for _, a := range l.cache.byImage {
+		a.noted = false
+	}
 }
 
 func (l *hdAssetLoader) worker() {

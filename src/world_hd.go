@@ -86,6 +86,7 @@ func prefetchWorldHDMap() {
 	if c == nil || c.r.Bag.WorldHDAssetCount() == 0 {
 		return
 	}
+	c.r.Bag.ResetWorldHDUsage()
 	imgs := legacy.WorldHDMapTileImages()
 	handles := make([]noxrender.ImageHandle, len(imgs))
 	for i, p := range imgs {

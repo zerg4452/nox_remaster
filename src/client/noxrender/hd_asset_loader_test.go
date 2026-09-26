@@ -275,3 +275,51 @@ func TestWorldHDPrefetchHandles(t *testing.T) {
 		t.Fatal("unbound bag queued work")
 	}
 }
+
+func TestWorldHDUsageOncePerMap(t *testing.T) {
+	raw, data, spec := loaderFixture(t)
+	var b RenderSprites
+	im0, im1, im2 := testImage(0, raw), testImage(1, raw), testImage(2, raw)
+	b.byIndex = []*Image{im0, im1, im2}
+	s0, s1, s2 := spec(0, "a.png"), spec(1, "a.png"), spec(2, "a.png")
+	s0.Shard, s1.Shard, s2.Shard = "floor.json", "floor.json", "wall.json"
+	b.worldHD = newHDAssetLoader(fstest.MapFS{"a.png": {Data: data}}, map[int]worldhd.FloorSpec{0: s0, 1: s1, 2: s2}, newHDAssetCache(hdAssetBudget))
+	defer b.worldHD.Close()
+	l := b.worldHD
+	l.Prefetch([]*Image{im0, im1, im2})
+	waitIdle(t, l)
+	used := func(shard string) int { return l.usedShard[shard] }
+	if len(l.usedIDs) != 0 || l.shardSize["floor.json"] != 2 || l.shardSize["wall.json"] != 1 {
+		t.Fatalf("installing counted as use: %v %v", l.usedIDs, l.shardSize)
+	}
+	for i := 0; i < 3; i++ {
+		if b.WorldHDAsset(im0) == nil {
+			t.Fatal("asset not installed")
+		}
+	}
+	b.WorldHDAsset(im2)
+	if len(l.usedIDs) != 2 || used("floor.json") != 1 || used("wall.json") != 1 {
+		t.Fatalf("after draws: %v %v", l.usedIDs, l.usedShard)
+	}
+	// Evicted and installed again in the same map: not counted twice.
+	a := l.cache.byImage[im0]
+	l.cache.remove(a)
+	l.Prefetch([]*Image{im0})
+	waitIdle(t, l)
+	b.WorldHDAsset(im0)
+	if len(l.usedIDs) != 2 || used("floor.json") != 1 {
+		t.Fatalf("reinstall counted twice: %v %v", l.usedIDs, l.usedShard)
+	}
+	// A new map starts over.
+	b.ResetWorldHDUsage()
+	if len(l.usedIDs) != 0 || used("floor.json") != 0 {
+		t.Fatalf("reset kept counts: %v %v", l.usedIDs, l.usedShard)
+	}
+	b.WorldHDAsset(im0)
+	b.WorldHDAsset(im1)
+	if len(l.usedIDs) != 2 || used("floor.json") != 2 || used("wall.json") != 0 {
+		t.Fatalf("after reset: %v %v", l.usedIDs, l.usedShard)
+	}
+	var none RenderSprites
+	none.ResetWorldHDUsage() // no asset set bound
+}
