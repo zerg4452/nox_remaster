@@ -65,7 +65,7 @@ func init() {
 				return
 			}
 			c.r.CensusImage(e)
-			c.tiles.hd.Edge(anchor, im.Pixdata(), e.Pixdata(), hd)
+			c.tiles.hd.Edge(anchor, im.Pixdata(), e.Pixdata(), hd, b.WorldHDAsset(e))
 		}
 	}
 	legacy.WorldHDUnsupported = func(kind int) {

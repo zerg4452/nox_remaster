@@ -25,21 +25,21 @@ func TestTilesRingAndEdges(t *testing.T) {
 	if !detail || v[0] == v[3] {
 		t.Fatal("HD detail lost at wrapped anchor")
 	}
-	if !ring.Edge(anchor, raw, []byte{0, 0, 1, 1}, nil) {
+	if !ring.Edge(anchor, raw, []byte{0, 0, 1, 1}, nil, nil) {
 		t.Fatal("keep rejected")
 	}
 	_, detail = ring.Pixel(anchor+23, 0)
 	if !detail {
 		t.Fatal("keep erased base detail")
 	}
-	if !ring.Edge(anchor, raw, []byte{0, 0, 2, 1, 0x56, 0x34}, nil) {
+	if !ring.Edge(anchor, raw, []byte{0, 0, 2, 1, 0x56, 0x34}, nil, nil) {
 		t.Fatal("opaque edge rejected")
 	}
 	v, detail = ring.Pixel(anchor+23, 0)
 	if detail || v != [4]uint16{0x3456, 0x3456, 0x3456, 0x3456} {
 		t.Fatal("edge did not overwrite HD")
 	}
-	if !ring.Edge(anchor, raw, []byte{0, 0, 3, 1}, f) {
+	if !ring.Edge(anchor, raw, []byte{0, 0, 3, 1}, f, nil) {
 		t.Fatal("underlay rejected")
 	}
 	_, detail = ring.Pixel(anchor+23, 0)
@@ -58,7 +58,7 @@ func TestTilesRingAndEdges(t *testing.T) {
 	if detail || v[0] != 0x1234 {
 		t.Fatal("original redraw retained stale HD")
 	}
-	if ring.Edge(anchor, raw, []byte{0, 0, 2, 1, 0x56}, nil) || ring.Ready() {
+	if ring.Edge(anchor, raw, []byte{0, 0, 2, 1, 0x56}, nil, nil) || ring.Ready() {
 		t.Fatal("truncated stream accepted")
 	}
 	v, detail = ring.Pixel(index, 0x2222)

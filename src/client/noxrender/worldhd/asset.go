@@ -24,9 +24,14 @@ import (
 // FloorSpec/FloorSource describe any record type here, not only floors.
 const MaxAssetPNG = 8 << 20
 
-// AssetPixels is the number of samples ConvertAsset writes for s.
+// AssetPixels is the number of samples ConvertAsset writes for s. Edges
+// (type 1) carry two planes: colours, then per-sample edge ops (EdgeAsset).
 func AssetPixels(s FloorSpec) int {
-	return s.LogicalSize.X * s.LogicalSize.Y * s.Density * s.Density
+	n := s.LogicalSize.X * s.LogicalSize.Y * s.Density * s.Density
+	if s.Type == 1 {
+		n *= 2
+	}
+	return n
 }
 
 // Per logical pixel coverage used for conversion (op&0xF values, 0 = uncovered).
@@ -62,6 +67,9 @@ func ConvertAsset(s FloorSpec, data []byte, src FloorSource, dst []uint16) error
 	im, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("asset %d: PNG decode: %w", s.ID, err)
+	}
+	if s.Type == 1 {
+		return convertEdge(s.ID, im, cov, dst)
 	}
 	b := im.Bounds().Min
 	for y := 0; y < 2*h; y++ {
@@ -115,6 +123,11 @@ func sourceCoverage(s FloorSpec, src FloorSource) ([]byte, error) {
 			}
 		}
 		return cov, nil
+	case 1:
+		if s.LogicalSize != image.Pt(46, 46) || s.Offset != (image.Point{}) {
+			return nil, errors.New("edge geometry mismatch")
+		}
+		return edgeOps(src.Raw)
 	case 3, 4, 5, 6:
 		return runCoverage(s, src.Raw)
 	}
@@ -174,4 +187,104 @@ func runCoverage(s FloorSpec, raw []byte) ([]byte, error) {
 		}
 	}
 	return cov, nil
+}
+
+// Edge assets (4.3-002, type 1). The PNG alpha of each HD sample selects the
+// edge op it takes: 0 keeps the floor below (op 1), 128 copies the edge's
+// underlying floor (op 3), 255 is an edge-owned colour (op 2, RGB). A sample
+// may use the op of its own logical pixel or of a 4-neighbour, so HD only
+// refines the original outline by half a pixel; outside the original rows and
+// the tile diamond everything stays keep.
+const (
+	EdgeKeep  = 1
+	EdgeOwn   = 2
+	EdgeFloor = 3
+)
+
+// EdgeSamples is the size of one EdgeAsset plane (46x46 logical, density 2).
+const EdgeSamples = 92 * 92
+
+// EdgeAsset splits ConvertAsset output of a type-1 record into RGB555 colours
+// (valid where ops is EdgeOwn) and per-sample ops. ok=false for a wrong size.
+func EdgeAsset(pix []uint16) (colors, ops []uint16, ok bool) {
+	if len(pix) != 2*EdgeSamples {
+		return nil, nil, false
+	}
+	return pix[:EdgeSamples], pix[EdgeSamples:], true
+}
+
+// edgeOps reads a packed edge stream like Tiles.Edge into per logical pixel
+// ops of the 46x46 tile square (0 = outside the drawn rows or the diamond).
+func edgeOps(raw []byte) ([]byte, error) {
+	if len(raw) < 2 || raw[0] > raw[1] || raw[1] >= 46 {
+		return nil, errors.New("invalid edge rows")
+	}
+	ops := make([]byte, 46*46)
+	pos := 2
+	for y := int(raw[0]); y <= int(raw[1]); y++ {
+		start, n, _ := tileRow(y)
+		for x := 0; x < n; {
+			if pos+2 > len(raw) {
+				return nil, errors.New("truncated edge")
+			}
+			op, count := raw[pos], int(raw[pos+1])
+			pos += 2
+			if count == 0 || count > n-x || op < EdgeKeep || op > EdgeFloor || (op == EdgeOwn && pos+2*count > len(raw)) {
+				return nil, errors.New("invalid edge run")
+			}
+			for j := 0; j < count; j++ {
+				ops[y*46+start+x+j] = op
+			}
+			if op == EdgeOwn {
+				pos += 2 * count
+			}
+			x += count
+		}
+	}
+	if pos != len(raw) {
+		return nil, errors.New("trailing edge data")
+	}
+	return ops, nil
+}
+
+func convertEdge(id int, im image.Image, ops []byte, dst []uint16) error {
+	colors, out, _ := EdgeAsset(dst)
+	// Outside pixels count as keep for their neighbours.
+	opAt := func(x, y int) byte {
+		if x < 0 || y < 0 || x >= 46 || y >= 46 || ops[y*46+x] == 0 {
+			return EdgeKeep
+		}
+		return ops[y*46+x]
+	}
+	b := im.Bounds().Min
+	for y := 0; y < 92; y++ {
+		for x := 0; x < 92; x++ {
+			c := color.NRGBAModel.Convert(im.At(b.X+x, b.Y+y)).(color.NRGBA)
+			var op byte
+			switch c.A {
+			case 0:
+				op = EdgeKeep
+			case 128:
+				op = EdgeFloor
+			case 255:
+				op = EdgeOwn
+			default:
+				return fmt.Errorf("asset %d: edge alpha %d at %d,%d", id, c.A, x, y)
+			}
+			lx, ly := x/2, y/2
+			if ops[ly*46+lx] == 0 {
+				if op != EdgeKeep {
+					return fmt.Errorf("asset %d: edge sample outside original rows at %d,%d", id, x, y)
+				}
+			} else if op != opAt(lx, ly) && op != opAt(lx-1, ly) && op != opAt(lx+1, ly) && op != opAt(lx, ly-1) && op != opAt(lx, ly+1) {
+				return fmt.Errorf("asset %d: edge op %d not at or beside the original at %d,%d", id, op, x, y)
+			}
+			i := y*92 + x
+			out[i], colors[i] = uint16(op), 0
+			if op == EdgeOwn {
+				colors[i] = uint16(noxcolor.RGB5551Color(c.R, c.G, c.B))
+			}
+		}
+	}
+	return nil
 }

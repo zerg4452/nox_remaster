@@ -123,8 +123,10 @@ func (t *Tiles) Base(anchor int, raw []byte, hd []uint16) bool {
 
 // Edge mirrors packed edge ops in original order: 1 keep destination,
 // 2 edge-owned opaque pixels, 3 source floor (possibly HD). Validate first so
-// a malformed stream cannot leave a partially accepted ring update.
-func (t *Tiles) Edge(anchor int, raw, edge []byte, hd []uint16) bool {
+// a malformed stream cannot leave a partially accepted ring update. With an
+// edge asset (ConvertAsset of the type-1 record, 4.3-002) each HD sample takes
+// its own op and edge-owned colour instead.
+func (t *Tiles) Edge(anchor int, raw, edge []byte, hd, asset []uint16) bool {
 	if !t.Ready() {
 		return false
 	}
@@ -169,6 +171,59 @@ func (t *Tiles) Edge(anchor int, raw, edge []byte, hd []uint16) bool {
 		if pos != len(edge) {
 			t.Invalidate()
 			return false
+		}
+		if pass == 0 && asset != nil && t.edgeAsset(anchor, raw, edge, hd, asset) {
+			return true
+		}
+	}
+	return true
+}
+
+// edgeAsset applies a validated edge stream's rows sample by sample from the
+// asset. A cell mixing kept and new samples needs its current value, so if
+// such a cell is not yet valid nothing is written and ok=false keeps the
+// original per-pixel path for this edge only.
+func (t *Tiles) edgeAsset(anchor int, raw, edge []byte, hd, asset []uint16) bool {
+	colors, ops, ok := EdgeAsset(asset)
+	if !ok {
+		return false
+	}
+	for write := 0; write < 2; write++ {
+		for y := int(edge[0]); y <= int(edge[1]); y++ {
+			start, n, off := tileRow(y)
+			for x := start; x < start+n; x++ {
+				var k [4]int
+				keep := 0
+				for d := range k {
+					k[d] = (2*y+d/2)*92 + 2*x + d%2
+					if ops[k[d]] == EdgeKeep {
+						keep++
+					}
+				}
+				if keep == 4 {
+					continue
+				}
+				i := t.index(anchor + y*t.Width + x)
+				if write == 0 {
+					if keep > 0 && !t.valid[i] {
+						return false
+					}
+					continue
+				}
+				floor, floorDetail := tileSamples(raw, off+x-start, x, y, hd)
+				detail := keep > 0 && t.detail[i]
+				for d := range k {
+					switch ops[k[d]] {
+					case EdgeFloor:
+						t.pix[i][d] = floor[d]
+						detail = detail || floorDetail
+					case EdgeOwn:
+						t.pix[i][d] = colors[k[d]]
+						detail = true
+					}
+				}
+				t.detail[i], t.valid[i] = detail, true
+			}
 		}
 	}
 	return true
